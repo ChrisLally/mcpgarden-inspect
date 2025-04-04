@@ -164,8 +164,8 @@ const Sidebar = ({
               <div className="space-y-2">
                 <label className="text-sm font-medium">URL</label>
                 <Input
-                  placeholder={transportType === "streamableHttp" 
-                    ? "https://example.com/mcp" 
+                  placeholder={transportType === "streamableHttp"
+                    ? "https://example.com/mcp"
                     : "URL"}
                   value={sseUrl}
                   onChange={(e) => setSseUrl(e.target.value)}
@@ -334,13 +334,12 @@ const Sidebar = ({
 
             <div className="flex items-center justify-center space-x-2 mb-4">
               <div
-                className={`w-2 h-2 rounded-full ${
-                  connectionStatus === "connected"
+                className={`w-2 h-2 rounded-full ${connectionStatus === "connected"
                     ? "bg-green-500"
                     : connectionStatus === "error"
                       ? "bg-red-500"
                       : "bg-gray-500"
-                }`}
+                  }`}
               />
               <span className="text-sm text-gray-600">
                 {connectionStatus === "connected"
