@@ -25,7 +25,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 import useTheme from "../lib/useTheme";
-import { version } from "../../../package.json";
+// import { version } from "../../../package.json";
 
 interface SidebarProps {
   connectionStatus: "disconnected" | "connected" | "error";
@@ -91,7 +91,8 @@ const Sidebar = ({
       <div className="flex items-center justify-between p-4 border-b border-gray-200">
         <div className="flex items-center">
           <h1 className="ml-2 text-lg font-semibold">
-            MCP Inspector v{version}
+            MCP Inspector v0.7.2
+            {/* {version} */}
           </h1>
         </div>
       </div>
@@ -182,6 +183,16 @@ const Sidebar = ({
                   onChange={(e) => setSseUrl(e.target.value)}
                   className="font-mono"
                 />
+                {/* START: Added Sample URL Button */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-1 text-xs"
+                  onClick={() => setSseUrl("https://gitmcp.io/modelcontextprotocol/servers/tree/main/src/time")}
+                >
+                  Use Sample URL (gitmcp.io time server)
+                </Button>
+                {/* END: Added Sample URL Button */}
                 {transportType === "streamableHttp" && !sseUrl.includes("/") && (
                   <div className="text-xs text-red-500">
                     The URL should include a path (e.g., /mcp) for Streamable HTTP transport

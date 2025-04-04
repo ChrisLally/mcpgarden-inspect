@@ -79,7 +79,7 @@ const App = () => {
 
   const [sseUrl, setSseUrl] = useState<string>(() => {
     // Default to relative path for SSE URL
-    return localStorage.getItem("lastSseUrl") || "/sse";
+    return localStorage.getItem("lastSseUrl") || "https://gitmcp.io/modelcontextprotocol/servers/tree/main/src/time"; // New default SSE URL
   });
   const [transportType, setTransportType] = useState<"stdio" | "sse" | "streamableHttp">(() => {
     return (
