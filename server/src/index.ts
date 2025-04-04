@@ -2,6 +2,12 @@
 
 import cors from "cors";
 import { parseArgs } from "node:util";
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Add this to get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { parse as shellParseArgs } from "shell-quote";
 
 import {
@@ -35,6 +41,16 @@ const { values } = parseArgs({
 
 const app = express();
 app.use(cors());
+
+// --- Static file serving ---
+// Resolve the path to the client's build directory relative to the server's build directory
+const clientBuildPath = path.resolve(__dirname, '../../client/dist');
+console.log(`Serving static files from: ${clientBuildPath}`);
+
+// Serve static files from the client build directory
+app.use(express.static(clientBuildPath));
+
+// --- API Routes (will be defined below) ---
 
 let webAppTransports: SSEServerTransport[] = [];
 
@@ -112,9 +128,9 @@ const createTransport = async (req: express.Request) => {
     const transport = new StreamableHttpClientTransport(new URL(url), {
       headers,
     });
-    
+
     await transport.start();
-    
+
     console.log("Connected to Streamable HTTP transport");
     return transport;
   } else {
@@ -177,7 +193,7 @@ app.get("/sse", async (req, res) => {
     });
 
     console.log("Set up MCP proxy between browser and server");
-    
+
     res.on("close", () => {
       console.log("Browser-inspector connection closed by client");
     });
@@ -204,7 +220,7 @@ app.post("/message", async (req, res) => {
       res.status(404).end("Session not found");
       return;
     }
-    
+
     await transport.handlePostMessage(req, res);
   } catch (error) {
     console.error("Error in /message route:", error);
@@ -238,6 +254,26 @@ app.get("/config", (req, res) => {
       },
     });
   }
+});
+
+// --- Fallback for client-side routing ---
+// For any GET request that doesn't match an API route or a static file,
+// serve the index.html file. This allows client-side routing to handle the path.
+app.get('*', (req, res) => {
+  // Ensure API routes are not caught by this fallback
+  if (req.path.startsWith('/sse') || req.path.startsWith('/message') || req.path.startsWith('/config')) {
+    return res.status(404).send('Not Found');
+  }
+
+  const indexPath = path.resolve(clientBuildPath, 'index.html');
+  console.log(`Fallback serving index.html from: ${indexPath} for request: ${req.path}`);
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error('Error sending index.html:', err);
+      // Avoid sending the error object directly to the client in production
+      res.status(500).send('Internal Server Error');
+    }
+  });
 });
 
 process.on('SIGINT', async () => {
