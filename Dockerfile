@@ -14,6 +14,8 @@ RUN npm ci --ignore-scripts
 # Copy the rest of the application code
 COPY . .
 
+# ARG/ENV for VITE_BACKEND_URL removed, using import.meta.env.DEV in App.tsx instead
+
 # Build the client application
 RUN npm run build --workspace=client
 

@@ -49,9 +49,12 @@ import ToolsTab from "./components/ToolsTab";
 import StatsTab from "./components/StatsTab";
 
 const params = new URLSearchParams(window.location.search);
-const PROXY_PORT = params.get("proxyPort") ?? "3000";
-const PROXY_SERVER_URL = `http://${window.location.hostname}:${PROXY_PORT}`;
-
+// Determine backend origin based on Vite's mode
+const backendOrigin = import.meta.env.DEV
+  ? `http://localhost:3000` // Local development: Use fixed backend origin
+  : window.location.origin; // Production/Deployment: Use the same origin as the frontend
+console.log(`[App] Backend origin determined as: ${backendOrigin} (DEV=${import.meta.env.DEV})`);
+console.log(`[App] Backend origin determined as: ${backendOrigin} (DEV=${import.meta.env.DEV})`);
 const App = () => {
   // Handle OAuth callback route
   const [resources, setResources] = useState<Resource[]>([]);
@@ -74,7 +77,8 @@ const App = () => {
   });
 
   const [sseUrl, setSseUrl] = useState<string>(() => {
-    return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
+    // Default to relative path for SSE URL
+    return localStorage.getItem("lastSseUrl") || "/sse";
   });
   const [transportType, setTransportType] = useState<"stdio" | "sse" | "streamableHttp">(() => {
     return (
@@ -117,6 +121,8 @@ const App = () => {
 
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
 
+  // No separate hook URL needed, backendOrigin handles both cases
+
   const {
     connectionStatus,
     serverCapabilities,
@@ -135,7 +141,7 @@ const App = () => {
     env,
     bearerToken,
     directConnection,
-    proxyServerUrl: PROXY_SERVER_URL,
+    proxyServerUrl: backendOrigin, // Pass the determined origin
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
     },
@@ -200,7 +206,7 @@ const App = () => {
   }, [connectMcpServer]);
 
   useEffect(() => {
-    fetch(`${PROXY_SERVER_URL}/config`)
+    fetch(`${backendOrigin}/config`) // Use the determined origin
       .then((response) => response.json())
       .then((data) => {
         setEnv(data.defaultEnvironment || {});
@@ -523,8 +529,8 @@ const App = () => {
 
               <div className="w-full">
                 {!serverCapabilities?.resources &&
-                !serverCapabilities?.prompts &&
-                !serverCapabilities?.tools ? (
+                  !serverCapabilities?.prompts &&
+                  !serverCapabilities?.tools ? (
                   <div className="flex items-center justify-center p-4">
                     <p className="text-lg text-gray-500">
                       The connected server does not support any MCP capabilities
@@ -657,7 +663,7 @@ const App = () => {
               <p className="text-lg text-gray-500">
                 Connected to MCP server but waiting for capabilities...
               </p>
-              <button 
+              <button
                 className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
                 onClick={() => {
                   // Attempt to reconnect instead of directly setting capabilities
