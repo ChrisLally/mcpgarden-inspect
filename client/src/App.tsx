@@ -24,6 +24,7 @@ import { useDraggablePane } from "./lib/hooks/useDraggablePane";
 import { StdErrNotification } from "./lib/notificationTypes";
 
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+// import { Button } from "@/components/ui/button"; // Removed unused import
 import {
   Bell,
   Files,
@@ -82,7 +83,7 @@ const App = () => {
   });
   const [transportType, setTransportType] = useState<"stdio" | "sse" | "streamableHttp">(() => {
     return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse" | "streamableHttp") || "stdio"
+      (localStorage.getItem("lastTransportType") as "stdio" | "sse" | "streamableHttp") || "sse" // Default to SSE
     );
   });
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
@@ -450,255 +451,275 @@ const App = () => {
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      <Sidebar
-        connectionStatus={connectionStatus}
-        transportType={transportType}
-        setTransportType={setTransportType}
-        command={command}
-        setCommand={setCommand}
-        args={args}
-        setArgs={setArgs}
-        sseUrl={sseUrl}
-        setSseUrl={setSseUrl}
-        env={env}
-        setEnv={setEnv}
-        bearerToken={bearerToken}
-        setBearerToken={setBearerToken}
-        directConnection={directConnection}
-        setDirectConnection={setDirectConnection}
-        onConnect={connectMcpServer}
-        stdErrNotifications={stdErrNotifications}
-        logLevel={logLevel}
-        sendLogLevelRequest={sendLogLevelRequest}
-        loggingSupported={!!serverCapabilities?.logging || false}
-      />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-auto">
-          {connectionStatus === "connected" && serverCapabilities ? (
-            <Tabs
-              defaultValue={
-                Object.keys(serverCapabilities).includes(window.location.hash.slice(1))
-                  ? window.location.hash.slice(1)
-                  : serverCapabilities?.resources
-                    ? "resources"
-                    : serverCapabilities?.prompts
-                      ? "prompts"
-                      : serverCapabilities?.tools
-                        ? "tools"
-                        : "ping"
-              }
-              className="w-full p-4"
-              onValueChange={(value) => (window.location.hash = value)}
-            >
-              <TabsList className="mb-4 p-0">
-                <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
-                  <Files className="w-4 h-4 mr-2" />
-                  Resources
-                </TabsTrigger>
-                <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
-                  <MessageSquare className="w-4 h-4 mr-2" />
-                  Prompts
-                </TabsTrigger>
-                <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
-                  <Hammer className="w-4 h-4 mr-2" />
-                  Tools
-                </TabsTrigger>
-                <TabsTrigger value="ping">
-                  <Bell className="w-4 h-4 mr-2" />
-                  Ping
-                </TabsTrigger>
-                <TabsTrigger value="sampling" className="relative">
-                  <Hash className="w-4 h-4 mr-2" />
-                  Sampling
-                  {pendingSampleRequests.length > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                      {pendingSampleRequests.length}
-                    </span>
-                  )}
-                </TabsTrigger>
-                <TabsTrigger value="roots">
-                  <FolderTree className="w-4 h-4 mr-2" />
-                  Roots
-                </TabsTrigger>
-                <TabsTrigger value="stats">
-                  <BarChart className="w-4 h-4 mr-2" />
-                  Stats
-                </TabsTrigger>
-              </TabsList>
-
-              <div className="w-full">
-                {!serverCapabilities?.resources &&
-                  !serverCapabilities?.prompts &&
-                  !serverCapabilities?.tools ? (
-                  <div className="flex items-center justify-center p-4">
-                    <p className="text-lg text-gray-500">
-                      The connected server does not support any MCP capabilities
-                    </p>
-                  </div>
-                ) : (
-                  <>
-                    <ResourcesTab
-                      resources={resources}
-                      resourceTemplates={resourceTemplates}
-                      listResources={() => {
-                        clearError("resources");
-                        listResources();
-                      }}
-                      clearResources={() => {
-                        setResources([]);
-                        setNextResourceCursor(undefined);
-                      }}
-                      listResourceTemplates={() => {
-                        clearError("resources");
-                        listResourceTemplates();
-                      }}
-                      clearResourceTemplates={() => {
-                        setResourceTemplates([]);
-                        setNextResourceTemplateCursor(undefined);
-                      }}
-                      readResource={(uri) => {
-                        clearError("resources");
-                        readResource(uri);
-                      }}
-                      selectedResource={selectedResource}
-                      setSelectedResource={(resource) => {
-                        clearError("resources");
-                        setSelectedResource(resource);
-                      }}
-                      resourceSubscriptionsSupported={serverCapabilities?.resources?.subscribe || false}
-                      resourceSubscriptions={resourceSubscriptions}
-                      subscribeToResource={(uri) => {
-                        clearError("resources");
-                        subscribeToResource(uri);
-                      }}
-                      unsubscribeFromResource={(uri) => {
-                        clearError("resources");
-                        unsubscribeFromResource(uri);
-                      }}
-                      handleCompletion={handleCompletion}
-                      completionsSupported={completionsSupported}
-                      resourceContent={resourceContent}
-                      nextCursor={nextResourceCursor}
-                      nextTemplateCursor={nextResourceTemplateCursor}
-                      error={errors.resources}
-                    />
-                    <PromptsTab
-                      prompts={prompts}
-                      listPrompts={() => {
-                        clearError("prompts");
-                        listPrompts();
-                      }}
-                      clearPrompts={() => {
-                        setPrompts([]);
-                        setNextPromptCursor(undefined);
-                      }}
-                      getPrompt={(name, args) => {
-                        clearError("prompts");
-                        getPrompt(name, args);
-                      }}
-                      selectedPrompt={selectedPrompt}
-                      setSelectedPrompt={(prompt) => {
-                        clearError("prompts");
-                        setSelectedPrompt(prompt);
-                      }}
-                      handleCompletion={handleCompletion}
-                      completionsSupported={completionsSupported}
-                      promptContent={promptContent}
-                      nextCursor={nextPromptCursor}
-                      error={errors.prompts}
-                    />
-                    <ToolsTab
-                      tools={tools}
-                      listTools={() => {
-                        clearError("tools");
-                        listTools();
-                      }}
-                      clearTools={() => {
-                        setTools([]);
-                        setNextToolCursor(undefined);
-                      }}
-                      callTool={(name, params) => {
-                        clearError("tools");
-                        callTool(name, params);
-                      }}
-                      selectedTool={selectedTool}
-                      setSelectedTool={(tool) => {
-                        clearError("tools");
-                        setSelectedTool(tool);
-                        setToolResult(null);
-                      }}
-                      toolResult={toolResult}
-                      nextCursor={nextToolCursor}
-                      error={errors.tools}
-                    />
-                    <ConsoleTab />
-                    <PingTab
-                      onPingClick={() => {
-                        void makeRequestWrapper(
-                          {
-                            method: "ping" as const,
-                          },
-                          EmptyResultSchema
-                        );
-                      }}
-                    />
-                    <SamplingTab
-                      pendingRequests={pendingSampleRequests}
-                      onApprove={handleApproveSampling}
-                      onReject={handleRejectSampling}
-                    />
-                    <RootsTab
-                      roots={roots}
-                      setRoots={setRoots}
-                      onRootsChange={handleRootsChange}
-                    />
-                    <StatsTab mcpClient={mcpClient} />
-                  </>
-                )}
-              </div>
-            </Tabs>
-          ) : connectionStatus === "connected" && mcpClient ? (
-            <div className="flex flex-col items-center justify-center h-full gap-4">
-              <p className="text-lg text-gray-500">
-                Connected to MCP server but waiting for capabilities...
-              </p>
-              <button
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                onClick={() => {
-                  // Attempt to reconnect instead of directly setting capabilities
-                  toast.info("Attempting to reconnect...");
-                  connectMcpServer();
-                }}
+    <div className="flex flex-col h-screen"> {/* Outer container for banner + main content */}
+      {/* START: Added Top Banner (Minimal Styling) */}
+      {/* Removed bg-card, border, text-card-foreground */}
+      <div className="p-2 flex items-center justify-between text-sm shrink-0 border-b border-border"> {/* Keep border */}
+        {/* Simple link */}
+        <a href="https://mcp.garden" target="_blank" rel="noopener noreferrer" className="text-xs hover:underline">
+          &lt; Return to mcp.garden
+        </a>
+        <span className="text-center flex-grow mx-4">
+          Welcome to the MCP Inspector hosted by mcp.garden! This deployment is in beta for testing purposes only.
+        </span>
+        {/* Invisible spacer */}
+        <a href="https://mcp.garden" className="text-xs invisible">&lt; Return to mcp.garden</a>
+      </div>
+      {/* END: Added Top Banner */}
+      {/* Original Content Area - Added flex-1 and overflow-hidden */}
+      {/* Removed overflow-hidden which might interfere with inner flex height */}
+      <div className="flex flex-1 bg-background">
+        <Sidebar
+          connectionStatus={connectionStatus}
+          transportType={transportType}
+          setTransportType={setTransportType}
+          command={command}
+          setCommand={setCommand}
+          args={args}
+          setArgs={setArgs}
+          sseUrl={sseUrl}
+          setSseUrl={setSseUrl}
+          env={env}
+          setEnv={setEnv}
+          bearerToken={bearerToken}
+          setBearerToken={setBearerToken}
+          directConnection={directConnection}
+          setDirectConnection={setDirectConnection}
+          onConnect={connectMcpServer}
+          stdErrNotifications={stdErrNotifications}
+          logLevel={logLevel}
+          sendLogLevelRequest={sendLogLevelRequest}
+          loggingSupported={!!serverCapabilities?.logging || false}
+        />
+        {/* Added min-w-0 to prevent potential flex overflow issues */}
+        {/* Added h-full to ensure column takes full height */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0 h-full">
+          <div className="flex-1 overflow-auto">
+            {connectionStatus === "connected" && serverCapabilities ? (
+              <Tabs
+                defaultValue={
+                  Object.keys(serverCapabilities).includes(window.location.hash.slice(1))
+                    ? window.location.hash.slice(1)
+                    : serverCapabilities?.resources
+                      ? "resources"
+                      : serverCapabilities?.prompts
+                        ? "prompts"
+                        : serverCapabilities?.tools
+                          ? "tools"
+                          : "ping"
+                }
+                className="w-full p-4"
+                onValueChange={(value) => (window.location.hash = value)}
               >
-                Reconnect
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-lg text-gray-500">
-                Connect to an MCP server to start inspecting
-              </p>
-            </div>
-          )}
-        </div>
-        <div
-          className="relative border-t border-border"
-          style={{
-            height: `${historyPaneHeight}px`,
-          }}
-        >
-          <div
-            className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
-            onMouseDown={handleDragStart}
-          >
-            <div className="w-8 h-1 rounded-full bg-border" />
+                <TabsList className="mb-4 p-0">
+                  <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
+                    <Files className="w-4 h-4 mr-2" />
+                    Resources
+                  </TabsTrigger>
+                  <TabsTrigger value="prompts" disabled={!serverCapabilities?.prompts}>
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Prompts
+                  </TabsTrigger>
+                  <TabsTrigger value="tools" disabled={!serverCapabilities?.tools}>
+                    <Hammer className="w-4 h-4 mr-2" />
+                    Tools
+                  </TabsTrigger>
+                  <TabsTrigger value="ping">
+                    <Bell className="w-4 h-4 mr-2" />
+                    Ping
+                  </TabsTrigger>
+                  <TabsTrigger value="sampling" className="relative">
+                    <Hash className="w-4 h-4 mr-2" />
+                    Sampling
+                    {pendingSampleRequests.length > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                        {pendingSampleRequests.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
+                  <TabsTrigger value="roots">
+                    <FolderTree className="w-4 h-4 mr-2" />
+                    Roots
+                  </TabsTrigger>
+                  <TabsTrigger value="stats">
+                    <BarChart className="w-4 h-4 mr-2" />
+                    Stats
+                  </TabsTrigger>
+                </TabsList>
+
+                <div className="w-full">
+                  {!serverCapabilities?.resources &&
+                    !serverCapabilities?.prompts &&
+                    !serverCapabilities?.tools ? (
+                    <div className="flex items-center justify-center p-4">
+                      <p className="text-lg text-gray-500">
+                        The connected server does not support any MCP capabilities
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <ResourcesTab
+                        resources={resources}
+                        resourceTemplates={resourceTemplates}
+                        listResources={() => {
+                          clearError("resources");
+                          listResources();
+                        }}
+                        clearResources={() => {
+                          setResources([]);
+                          setNextResourceCursor(undefined);
+                        }}
+                        listResourceTemplates={() => {
+                          clearError("resources");
+                          listResourceTemplates();
+                        }}
+                        clearResourceTemplates={() => {
+                          setResourceTemplates([]);
+                          setNextResourceTemplateCursor(undefined);
+                        }}
+                        readResource={(uri) => {
+                          clearError("resources");
+                          readResource(uri);
+                        }}
+                        selectedResource={selectedResource}
+                        setSelectedResource={(resource) => {
+                          clearError("resources");
+                          setSelectedResource(resource);
+                        }}
+                        resourceSubscriptionsSupported={serverCapabilities?.resources?.subscribe || false}
+                        resourceSubscriptions={resourceSubscriptions}
+                        subscribeToResource={(uri) => {
+                          clearError("resources");
+                          subscribeToResource(uri);
+                        }}
+                        unsubscribeFromResource={(uri) => {
+                          clearError("resources");
+                          unsubscribeFromResource(uri);
+                        }}
+                        handleCompletion={handleCompletion}
+                        completionsSupported={completionsSupported}
+                        resourceContent={resourceContent}
+                        nextCursor={nextResourceCursor}
+                        nextTemplateCursor={nextResourceTemplateCursor}
+                        error={errors.resources}
+                      />
+                      <PromptsTab
+                        prompts={prompts}
+                        listPrompts={() => {
+                          clearError("prompts");
+                          listPrompts();
+                        }}
+                        clearPrompts={() => {
+                          setPrompts([]);
+                          setNextPromptCursor(undefined);
+                        }}
+                        getPrompt={(name, args) => {
+                          clearError("prompts");
+                          getPrompt(name, args);
+                        }}
+                        selectedPrompt={selectedPrompt}
+                        setSelectedPrompt={(prompt) => {
+                          clearError("prompts");
+                          setSelectedPrompt(prompt);
+                        }}
+                        handleCompletion={handleCompletion}
+                        completionsSupported={completionsSupported}
+                        promptContent={promptContent}
+                        nextCursor={nextPromptCursor}
+                        error={errors.prompts}
+                      />
+                      <ToolsTab
+                        tools={tools}
+                        listTools={() => {
+                          clearError("tools");
+                          listTools();
+                        }}
+                        clearTools={() => {
+                          setTools([]);
+                          setNextToolCursor(undefined);
+                        }}
+                        callTool={(name, params) => {
+                          clearError("tools");
+                          callTool(name, params);
+                        }}
+                        selectedTool={selectedTool}
+                        setSelectedTool={(tool) => {
+                          clearError("tools");
+                          setSelectedTool(tool);
+                          setToolResult(null);
+                        }}
+                        toolResult={toolResult}
+                        nextCursor={nextToolCursor}
+                        error={errors.tools}
+                      />
+                      <ConsoleTab />
+                      <PingTab
+                        onPingClick={() => {
+                          void makeRequestWrapper(
+                            {
+                              method: "ping" as const,
+                            },
+                            EmptyResultSchema
+                          );
+                        }}
+                      />
+                      <SamplingTab
+                        pendingRequests={pendingSampleRequests}
+                        onApprove={handleApproveSampling}
+                        onReject={handleRejectSampling}
+                      />
+                      <RootsTab
+                        roots={roots}
+                        setRoots={setRoots}
+                        onRootsChange={handleRootsChange}
+                      />
+                      <StatsTab mcpClient={mcpClient} />
+                    </>
+                  )}
+                </div>
+              </Tabs>
+            ) : connectionStatus === "connected" && mcpClient ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4">
+                <p className="text-lg text-gray-500">
+                  Connected to MCP server but waiting for capabilities...
+                </p>
+                <button
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  onClick={() => {
+                    // Attempt to reconnect instead of directly setting capabilities
+                    toast.info("Attempting to reconnect...");
+                    connectMcpServer();
+                  }}
+                >
+                  Reconnect
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-lg text-gray-500">
+                  Connect to an MCP server to start inspecting
+                </p>
+              </div>
+            )}
           </div>
-          <div className="h-full overflow-auto">
-            <HistoryAndNotifications
-              requestHistory={requestHistory}
-              serverNotifications={notifications}
-            />
+          <div
+            className="relative border-t border-border"
+            style={{
+              height: `${historyPaneHeight}px`,
+            }}
+          >
+            <div
+              className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
+              onMouseDown={handleDragStart}
+            >
+              <div className="w-8 h-1 rounded-full bg-border" />
+            </div>
+            <div className="h-full overflow-auto">
+              <HistoryAndNotifications
+                requestHistory={requestHistory}
+                serverNotifications={notifications}
+              />
+            </div>
           </div>
         </div>
       </div>

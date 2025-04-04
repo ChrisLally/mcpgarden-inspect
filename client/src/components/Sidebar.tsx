@@ -158,6 +158,17 @@ const Sidebar = ({
                   className="font-mono"
                 />
               </div>
+              {/* START: Added STDIO Info Block */}
+              <div className="mt-4 p-3 bg-muted rounded-md border border-border text-muted-foreground">
+                <p className="text-sm font-medium mb-2">Run Locally:</p>
+                <p className="text-xs font-mono bg-background p-2 rounded break-words">
+                  npx @modelcontextprotocol/inspector {command || "<COMMAND>"} {args || "<ARGUMENTS>"}
+                </p>
+                <p className="text-xs mt-2">
+                  Use the command above in your terminal to start the inspector with your local MCP server via STDIO. The 'Connect' button is disabled for this mode.
+                </p>
+              </div>
+              {/* END: Added STDIO Info Block */}
             </>
           ) : (
             <>
@@ -327,7 +338,12 @@ const Sidebar = ({
           )}
 
           <div className="space-y-2">
-            <Button className="w-full" onClick={onConnect}>
+            <Button
+              className="w-full"
+              onClick={onConnect}
+              disabled={connectionStatus === 'connected' || transportType === 'stdio'}
+              title={transportType === 'stdio' ? "Connect button is disabled for STDIO mode. Run the npx command locally instead." : undefined}
+            >
               <Play className="w-4 h-4 mr-2" />
               Connect
             </Button>
@@ -335,10 +351,10 @@ const Sidebar = ({
             <div className="flex items-center justify-center space-x-2 mb-4">
               <div
                 className={`w-2 h-2 rounded-full ${connectionStatus === "connected"
-                    ? "bg-green-500"
-                    : connectionStatus === "error"
-                      ? "bg-red-500"
-                      : "bg-gray-500"
+                  ? "bg-green-500"
+                  : connectionStatus === "error"
+                    ? "bg-red-500"
+                    : "bg-gray-500"
                   }`}
               />
               <span className="text-sm text-gray-600">
