@@ -1,0 +1,27 @@
+{
+    "nodes": {
+        "should_use_tool": {
+            "type": "function",
+            "description": "Determines if a tool should be used based on the input"
+        },
+        "format_tool_input": {
+            "type": "function",
+            "description": "Formats the input for tool usage"
+        },
+        "generate_response": {
+            "type": "function",
+            "description": "Generates a response using the LLM"
+        }
+    },
+    "edges": {
+        "should_use_tool": {
+            "true": "format_tool_input",
+            "false": "generate_response"
+        },
+        "format_tool_input": {
+            "default": "generate_response"
+        }
+    },
+    "entry": "should_use_tool",
+    "finish": "generate_response"
+} 
