@@ -4,8 +4,8 @@ import { Input } from "@/components/ui/input";
 import { useState } from "react";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Initialize Google Gemini
-const genAI = new GoogleGenerativeAI('AIzaSyADOkwl1FJm_jcZvH23gmUrCAcKQPrnLv4');
+// Initialize Google Gemini with API key from environment variable
+const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
 
 interface Message {
   role: 'user' | 'assistant';
