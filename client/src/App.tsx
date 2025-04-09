@@ -564,7 +564,13 @@ const App = () => {
                     </div>
                   ) : (
                     <>
-                      <ChatTab />
+                      <ChatTab 
+                        tools={tools}
+                        callTool={(name, params) => {
+                          clearError("tools");
+                          return callTool(name, params);
+                        }}
+                      />
                       <ResourcesTab
                         resources={resources}
                         resourceTemplates={resourceTemplates}

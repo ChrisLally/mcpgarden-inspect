@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "dev": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev\"",
-    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows",
+    "dev:windows": "concurrently \"cd client && npm run dev\" \"cd server && npm run dev:windows\"",
     "build-server": "cd server && npm run build",
     "build-client": "cd client && npm run build",
     "build": "npm run build-server && npm run build-client",
@@ -32,7 +32,10 @@
     "start": "node ./bin/cli.js",
     "prepare": "npm run build",
     "prettier-fix": "prettier --write .",
-    "publish-package": "npm run build && npm publish --access public"
+    "publish-package": "npm run build && npm publish --access public",
+    "setup-agent": "cd agent && pip install -r requirements.txt",
+    "dev-agent": "cd agent && python main.py",
+    "dev-all": "concurrently \"npm run dev:windows\" \"npm run dev-agent\""
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.1",
