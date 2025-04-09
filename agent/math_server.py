@@ -39,86 +39,91 @@ async def chat_endpoint(websocket: WebSocket):
     await websocket.accept()
     logger.info("New WebSocket connection accepted")
     
+    # Initialize state
     state = ChatState()
     
     try:
+        # Initialize with default empty tools - they will be populated by MCP client if available
+        state.available_tools = {}
+        
         while True:
-            # Receive message from client with timeout
+            # Handle incoming messages
             try:
                 logger.info("Waiting for client message...")
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                 message = json.loads(data)
                 logger.info(f"Received message: {message}")
                 
-                # Add message to state using Message model
-                state.messages.append(Message(role="user", content=message["content"]))
-                logger.info(f"Added message to state: {state.messages[-1]}")
-                
-                # Run the agent
-                logger.info("Running agent...")
-                try:
-                    result = agent_graph.invoke(state)
-                    logger.info("Agent run completed successfully")
-                    
-                    # Convert result back to ChatState if needed
-                    new_state = result if isinstance(result, ChatState) else ChatState(**result)
-                    
-                    # If tool input is prepared, send it to client
-                    if hasattr(new_state, 'tool_input') and new_state.tool_input:
-                        logger.info(f"Calling tool: {new_state.tool_input}")
-                        await websocket.send_json({
-                            "type": "tool_call",
-                            "data": new_state.tool_input
-                        })
-                        
-                        # Wait for tool result with timeout
-                        logger.info("Waiting for tool result...")
-                        tool_result = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                        logger.info(f"Tool result received: {tool_result}")
-                        new_state.tool_output = tool_result
-                    
-                    # Send final response
-                    logger.info("Sending response...")
-                    if hasattr(new_state, 'messages') and new_state.messages:
-                        last_message = new_state.messages[-1]
-                        response_data = {
-                            "type": "message",
-                            "data": {"role": last_message.role, "content": last_message.content}
+                # Handle MCP tool registration
+                if isinstance(message, dict) and "tools" in message:
+                    tools = message["tools"]
+                    state.available_tools = {
+                        tool["name"]: {
+                            "name": tool["name"],
+                            "description": tool.get("description", "No description available"),
+                            "input_schema": tool.get("input_schema", {"properties": {}})
                         }
-                        logger.info(f"Response data: {response_data}")
-                        await websocket.send_json(response_data)
-                        logger.info("Response sent successfully")
-                    else:
-                        logger.warning("No messages in state to send")
+                        for tool in tools
+                    }
+                    logger.info(f"Updated MCP tools: {list(state.available_tools.keys())}")
+                    continue
+                
+                # Handle regular chat messages
+                if isinstance(message, dict) and "content" in message:
+                    # Add message to state
+                    state.messages.append(Message(role="user", content=message["content"]))
+                    
+                    # Run agent
+                    try:
+                        logger.info(f"Running agent with message: {message['content']}")
+                        result = agent_graph.invoke(state)
+                        new_state = result if isinstance(result, ChatState) else ChatState(**result)
+                        
+                        # Handle tool calls
+                        if new_state.tool_input:
+                            logger.info(f"Executing tool: {new_state.tool_input}")
+                            await websocket.send_json({
+                                "type": "tool_call",
+                                "data": new_state.tool_input
+                            })
+                            
+                            tool_result = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                            logger.info(f"Tool result: {tool_result}")
+                            new_state.tool_output = tool_result
+                        
+                        # Send response
+                        if new_state.messages:
+                            last_message = new_state.messages[-1]
+                            await websocket.send_json({
+                                "type": "message",
+                                "data": {"role": last_message.role, "content": last_message.content}
+                            })
+                        
+                        # Update state
+                        state = new_state
+                        
+                    except Exception as e:
+                        logger.error(f"Agent error: {e}")
                         await websocket.send_json({
                             "type": "error",
-                            "data": {"message": "No response generated"}
+                            "data": {"message": f"Agent error: {str(e)}"}
                         })
-                    
-                    # Update state
-                    state = new_state
-                    
-                except Exception as e:
-                    logger.error(f"Error during agent run: {e}")
-                    raise
+                else:
+                    logger.warning(f"Received invalid message format: {message}")
             
             except asyncio.TimeoutError:
-                logger.warning("Timeout waiting for client")
-                await websocket.send_json({
-                    "type": "error",
-                    "data": {"message": "Request timed out"}
-                })
+                logger.warning("Client message timeout")
                 continue
             
     except Exception as e:
-        logger.error(f"Error in WebSocket handler: {e}", exc_info=True)
+        logger.error(f"WebSocket error: {e}")
         try:
             await websocket.send_json({
                 "type": "error",
                 "data": {"message": str(e)}
             })
         except:
-            logger.error("Failed to send error message to client", exc_info=True)
+            pass
         finally:
             await websocket.close()
 
