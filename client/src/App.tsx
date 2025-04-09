@@ -33,6 +33,7 @@ import {
   Hash,
   MessageSquare,
   BarChart,
+  MessageCircle,
 } from "lucide-react";
 
 import { toast } from "react-toastify";
@@ -48,6 +49,7 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import StatsTab from "./components/StatsTab";
+import ChatTab from "./components/ChatTab";
 
 const params = new URLSearchParams(window.location.search);
 // Determine backend origin based on Vite's mode
@@ -500,18 +502,16 @@ const App = () => {
                 defaultValue={
                   Object.keys(serverCapabilities).includes(window.location.hash.slice(1))
                     ? window.location.hash.slice(1)
-                    : serverCapabilities?.resources
-                      ? "resources"
-                      : serverCapabilities?.prompts
-                        ? "prompts"
-                        : serverCapabilities?.tools
-                          ? "tools"
-                          : "ping"
+                    : "chat"
                 }
                 className="w-full p-4"
                 onValueChange={(value) => (window.location.hash = value)}
               >
                 <TabsList className="mb-4 p-0">
+                  <TabsTrigger value="chat">
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    Chat
+                  </TabsTrigger>
                   <TabsTrigger value="resources" disabled={!serverCapabilities?.resources}>
                     <Files className="w-4 h-4 mr-2" />
                     Resources
@@ -558,6 +558,7 @@ const App = () => {
                     </div>
                   ) : (
                     <>
+                      <ChatTab />
                       <ResourcesTab
                         resources={resources}
                         resourceTemplates={resourceTemplates}

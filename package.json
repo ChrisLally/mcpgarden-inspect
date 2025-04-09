@@ -35,8 +35,10 @@
     "publish-package": "npm run build && npm publish --access public"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@google/generative-ai": "^0.24.0",
+    "@modelcontextprotocol/sdk": "^1.9.0",
     "@radix-ui/react-accordion": "^1.2.3",
+    "agno": "^1.0.0",
     "concurrently": "^9.0.1",
     "cors": "^2.8.5",
     "express": "^4.21.0",
