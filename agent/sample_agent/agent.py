@@ -71,6 +71,7 @@ IMPORTANT RULES:
     
     def should_use_tool(state: ChatState) -> Dict[str, Any]:
         print("Entering should_use_tool...")
+        print(f"Available tools: {list(state.available_tools.keys())}")
         
         last_message = state.get_last_message()
         if not last_message:
@@ -81,12 +82,14 @@ IMPORTANT RULES:
         
         # Direct "use tool X" pattern
         if message_content.startswith("use tool "):
-            requested_tool = message_content.replace("use tool ", "").strip()
-            for tool_name in state.available_tools:
-                if tool_name.lower() == requested_tool:
-                    state.current_tool = tool_name
-                    print(f"Tool selected (direct command): {tool_name}")
-                    return {"use_tool": True, "tool": tool_name}
+            requested_tool = message_content[9:].strip()  # Remove "use tool " prefix
+            print(f"Extracted tool name: {requested_tool}")
+            # First try exact match
+            if requested_tool in [t.lower() for t in state.available_tools.keys()]:
+                tool_name = next(t for t in state.available_tools.keys() if t.lower() == requested_tool)
+                state.current_tool = tool_name
+                print(f"Tool selected (direct command): {tool_name}")
+                return {"use_tool": True, "tool": tool_name}
         
         # Check other variations
         tool_intent_phrases = [
@@ -100,19 +103,21 @@ IMPORTANT RULES:
         
         for phrase in tool_intent_phrases:
             if message_content.startswith(phrase + " "):
-                requested_tool = message_content.replace(phrase + " ", "").strip()
-                for tool_name in state.available_tools:
-                    if tool_name.lower() == requested_tool:
-                        state.current_tool = tool_name
-                        print(f"Tool selected (variation): {tool_name}")
-                        return {"use_tool": True, "tool": tool_name}
+                requested_tool = message_content[len(phrase) + 1:].strip()
+                print(f"Extracted tool name from phrase '{phrase}': {requested_tool}")
+                if requested_tool in [t.lower() for t in state.available_tools.keys()]:
+                    tool_name = next(t for t in state.available_tools.keys() if t.lower() == requested_tool)
+                    state.current_tool = tool_name
+                    print(f"Tool selected (variation): {tool_name}")
+                    return {"use_tool": True, "tool": tool_name}
         
         # Finally check for direct tool name
-        for tool_name in state.available_tools:
-            if message_content == tool_name.lower():
-                state.current_tool = tool_name
-                print(f"Tool selected (name only): {tool_name}")
-                return {"use_tool": True, "tool": tool_name}
+        message_tool = message_content.strip()
+        if message_tool in [t.lower() for t in state.available_tools.keys()]:
+            tool_name = next(t for t in state.available_tools.keys() if t.lower() == message_tool)
+            state.current_tool = tool_name
+            print(f"Tool selected (name only): {tool_name}")
+            return {"use_tool": True, "tool": tool_name}
         
         print("No tool needed")
         return {"use_tool": False, "tool": ""}
@@ -158,7 +163,7 @@ IMPORTANT RULES:
             return state
             
         try:
-            # If we have a tool to use, format it directly
+            # If we have a tool to use, ALWAYS format it directly without using LLM
             if state.current_tool:
                 tool_info = state.available_tools.get(state.current_tool)
                 if tool_info:
@@ -175,36 +180,17 @@ IMPORTANT RULES:
                             main_param = next(iter(properties.keys()))
                             tool_call["params"][main_param] = ""  # Empty string as we don't need additional input
                     
-                    # Add tool call as response
+                    print(f"Using tool directly: {tool_call}")
+                    # Important: Add both the tool input and a message
+                    state.tool_input = tool_call
                     state.messages.append(Message(
                         role="assistant",
                         content=str(tool_call)
                     ))
-                    state.tool_input = tool_call
                     return state
             
             # For non-tool responses, keep it simple
-            if not state.available_tools:
-                messages = [HumanMessage(content=last_message.content)]
-                response = llm.invoke(messages)
-                state.messages.append(Message(
-                    role="assistant",
-                    content=str(response.content)
-                ))
-                return state
-            
-            # If we get here, it's a regular message with tools available
-            formatted_prompt = prompt.format(
-                system_message=get_system_prompt(state.available_tools),
-                input=last_message.content
-            )
-            
-            messages = [SystemMessage(content=formatted_prompt.messages[0].content),
-                       HumanMessage(content=last_message.content)]
-            
-            if state.tool_output:
-                messages.append(AIMessage(content=f"Tool result: {state.tool_output}"))
-            
+            messages = [HumanMessage(content=last_message.content)]
             response = llm.invoke(messages)
             state.messages.append(Message(
                 role="assistant",
