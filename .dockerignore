@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log
+.DS_Store
+.env
+.git
+.gitignore
+.vscode
+*.md
+client/dist
+server/build
+*.tsbuildinfo
+client/tsconfig.app.tsbuildinfo
+client/tsconfig.node.tsbuildinfo
+
