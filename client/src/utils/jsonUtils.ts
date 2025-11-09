@@ -7,20 +7,48 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+export type JsonSchemaConst = {
+  const: JsonValue;
+  title?: string;
+  description?: string;
+};
+
 export type JsonSchemaType = {
-  type:
+  type?:
     | "string"
     | "number"
     | "integer"
     | "boolean"
     | "array"
     | "object"
-    | "null";
+    | "null"
+    | (
+        | "string"
+        | "number"
+        | "integer"
+        | "boolean"
+        | "array"
+        | "object"
+        | "null"
+      )[];
+  title?: string;
   description?: string;
-  required?: boolean;
+  required?: string[];
   default?: JsonValue;
   properties?: Record<string, JsonSchemaType>;
   items?: JsonSchemaType;
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  nullable?: boolean;
+  pattern?: string;
+  format?: string;
+  enum?: string[];
+  const?: JsonValue;
+  oneOf?: (JsonSchemaType | JsonSchemaConst)[];
+  anyOf?: (JsonSchemaType | JsonSchemaConst)[];
+  $ref?: string;
 };
 
 export type JsonObject = { [key: string]: JsonValue };
@@ -37,18 +65,29 @@ export type DataType =
   | "array"
   | "null";
 
+/**
+ * Determines the specific data type of a JSON value
+ * @param value The JSON value to analyze
+ * @returns The specific data type including "array" and "null" as distinct types
+ */
 export function getDataType(value: JsonValue): DataType {
   if (Array.isArray(value)) return "array";
   if (value === null) return "null";
   return typeof value;
 }
 
+/**
+ * Attempts to parse a string as JSON, only for objects and arrays
+ * @param str The string to parse
+ * @returns Object with success boolean and either parsed data or original string
+ */
 export function tryParseJson(str: string): {
   success: boolean;
   data: JsonValue;
 } {
-  const trimmed = str.trim();
+  const trimmed = str?.trim();
   if (
+    trimmed &&
     !(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
     !(trimmed.startsWith("[") && trimmed.endsWith("]"))
   ) {

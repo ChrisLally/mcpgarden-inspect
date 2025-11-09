@@ -17,26 +17,44 @@ import {
   Tool,
   LoggingLevel,
 } from "@modelcontextprotocol/sdk/types.js";
-import React, { Suspense, useEffect, useRef, useState } from "react";
+import { OAuthTokensSchema } from "@modelcontextprotocol/sdk/shared/auth.js";
+import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
+import { AuthDebuggerState, EMPTY_DEBUGGER_STATE } from "./lib/auth-types";
+import { OAuthStateMachine } from "./lib/oauth-state-machine";
+import { cacheToolOutputSchemas } from "./utils/schemaUtils";
+import { cleanParams } from "./utils/paramUtils";
+import type { JsonSchemaType } from "./utils/jsonUtils";
+import React, {
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useConnection } from "./lib/hooks/useConnection";
-import { useDraggablePane } from "./lib/hooks/useDraggablePane";
-import { StdErrNotification } from "./lib/notificationTypes";
+import {
+  useDraggablePane,
+  useDraggableSidebar,
+} from "./lib/hooks/useDraggablePane";
 
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import {
   Bell,
   Files,
   FolderTree,
   Hammer,
   Hash,
+  Key,
   MessageCircle, // Import chat icon
-  MessageSquare
+  MessageSquare,
 } from "lucide-react";
 
 import { z } from "zod";
 import "./App.css";
+import AuthDebugger from "./components/AuthDebugger";
 import ConsoleTab from "./components/ConsoleTab";
-import HistoryAndNotifications from "./components/History";
+import HistoryAndNotifications from "./components/HistoryAndNotifications";
 import PingTab from "./components/PingTab";
 import PromptsTab, { Prompt } from "./components/PromptsTab";
 import ResourcesTab from "./components/ResourcesTab";
@@ -45,22 +63,38 @@ import SamplingTab, { PendingRequest } from "./components/SamplingTab";
 import Sidebar from "./components/Sidebar";
 import ToolsTab from "./components/ToolsTab";
 import ChatTab from "./components/ChatTab"; // Import the new ChatTab component
-import { DEFAULT_INSPECTOR_CONFIG } from "./lib/constants";
 import { InspectorConfig } from "./lib/configurationTypes";
-import { getMCPProxyAddress } from "./utils/configUtils";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "./lib/hooks/useToast";
+import {
+  getMCPProxyAddress,
+  getMCPProxyAuthToken,
+  getInitialSseUrl,
+  getInitialTransportType,
+  getInitialCommand,
+  getInitialArgs,
+  initializeInspectorConfig,
+  saveInspectorConfig,
+} from "./utils/configUtils";
+import ElicitationTab, {
+  PendingElicitationRequest,
+  ElicitationResponse,
+} from "./components/ElicitationTab";
+import {
+  CustomHeaders,
+  migrateFromLegacyAuth,
+} from "./lib/types/customHeaders";
 
-const params = new URLSearchParams(window.location.search);
 const CONFIG_LOCAL_STORAGE_KEY = "inspectorConfig_v1";
 
 const App = () => {
-  const { toast } = useToast();
-  // Handle OAuth callback route
   const [resources, setResources] = useState<Resource[]>([]);
   const [resourceTemplates, setResourceTemplates] = useState<
     ResourceTemplate[]
   >([]);
   const [resourceContent, setResourceContent] = useState<string>("");
+  const [resourceContentMap, setResourceContentMap] = useState<
+    Record<string, string>
+  >({});
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [promptContent, setPromptContent] = useState<string>("");
   const [tools, setTools] = useState<Tool[]>([]);
@@ -71,52 +105,84 @@ const App = () => {
     prompts: null,
     tools: null,
   });
-  const [command, setCommand] = useState<string>(() => {
-    return localStorage.getItem("lastCommand") || "mcp-server-everything";
-  });
-  const [args, setArgs] = useState<string>(() => {
-    return localStorage.getItem("lastArgs") || "";
-  });
+  const [command, setCommand] = useState<string>(getInitialCommand);
+  const [args, setArgs] = useState<string>(getInitialArgs);
 
-  const [sseUrl, setSseUrl] = useState<string>(() => {
-    return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse"; // Default might need update for streamableHttp
-  });
-  const [transportType, setTransportType] = useState<"stdio" | "sse" | "streamableHttp">(() => {
-    return (
-      (localStorage.getItem("lastTransportType") as "stdio" | "sse" | "streamableHttp") || "stdio"
-    );
-  });
+  const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
+  const [transportType, setTransportType] = useState<
+    "stdio" | "sse" | "streamable-http"
+  >(getInitialTransportType);
+  const [connectionType, setConnectionType] = useState<"direct" | "proxy">(
+    () => {
+      // Default to "direct" for SSE transport, "proxy" for others
+      const savedType = localStorage.getItem("lastConnectionType") as
+        | "direct"
+        | "proxy"
+        | null;
+      if (savedType) return savedType;
+      const initialTransport = getInitialTransportType();
+      return initialTransport === "sse" ? "direct" : "proxy";
+    },
+  );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
   const [notifications, setNotifications] = useState<ServerNotification[]>([]);
-  const [stdErrNotifications, setStdErrNotifications] = useState<
-    StdErrNotification[]
-  >([]);
   const [roots, setRoots] = useState<Root[]>([]);
   const [env, setEnv] = useState<Record<string, string>>({});
 
-  const [config, setConfig] = useState<InspectorConfig>(() => {
-    const savedConfig = localStorage.getItem(CONFIG_LOCAL_STORAGE_KEY);
-    if (savedConfig) {
-      // merge default config with saved config
-      const mergedConfig = {
-        ...DEFAULT_INSPECTOR_CONFIG,
-        ...JSON.parse(savedConfig),
-      } as InspectorConfig;
-
-      // update description of keys to match the new description (in case of any updates to the default config description)
-      Object.entries(mergedConfig).forEach(([key, value]) => {
-        mergedConfig[key as keyof InspectorConfig] = {
-          ...value,
-          label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
-        };
-      });
-
-      return mergedConfig;
-    }
-    return DEFAULT_INSPECTOR_CONFIG;
-  });
+  const [config, setConfig] = useState<InspectorConfig>(() =>
+    initializeInspectorConfig(CONFIG_LOCAL_STORAGE_KEY),
+  );
   const [bearerToken, setBearerToken] = useState<string>(() => {
     return localStorage.getItem("lastBearerToken") || "";
+  });
+
+  const [headerName, setHeaderName] = useState<string>(() => {
+    return localStorage.getItem("lastHeaderName") || "";
+  });
+
+  const [oauthClientId, setOauthClientId] = useState<string>(() => {
+    return localStorage.getItem("lastOauthClientId") || "";
+  });
+
+  const [oauthScope, setOauthScope] = useState<string>(() => {
+    return localStorage.getItem("lastOauthScope") || "";
+  });
+
+  const [oauthClientSecret, setOauthClientSecret] = useState<string>(() => {
+    return localStorage.getItem("lastOauthClientSecret") || "";
+  });
+
+  // Custom headers state with migration from legacy auth
+  const [customHeaders, setCustomHeaders] = useState<CustomHeaders>(() => {
+    const savedHeaders = localStorage.getItem("lastCustomHeaders");
+    if (savedHeaders) {
+      try {
+        return JSON.parse(savedHeaders);
+      } catch (error) {
+        console.warn(
+          `Failed to parse custom headers: "${savedHeaders}", will try legacy migration`,
+          error,
+        );
+        // Fall back to migration if JSON parsing fails
+      }
+    }
+
+    // Migrate from legacy auth if available
+    const legacyToken = localStorage.getItem("lastBearerToken") || "";
+    const legacyHeaderName = localStorage.getItem("lastHeaderName") || "";
+
+    if (legacyToken) {
+      return migrateFromLegacyAuth(legacyToken, legacyHeaderName);
+    }
+
+    // Default to empty array
+    return [
+      {
+        name: "Authorization",
+        value: "Bearer ",
+        enabled: false,
+      },
+    ];
   });
 
   const [pendingSampleRequests, setPendingSampleRequests] = useState<
@@ -127,6 +193,24 @@ const App = () => {
       }
     >
   >([]);
+  const [pendingElicitationRequests, setPendingElicitationRequests] = useState<
+    Array<
+      PendingElicitationRequest & {
+        resolve: (response: ElicitationResponse) => void;
+        decline: (error: Error) => void;
+      }
+    >
+  >([]);
+  const [isAuthDebuggerVisible, setIsAuthDebuggerVisible] = useState(false);
+
+  const [authState, setAuthState] =
+    useState<AuthDebuggerState>(EMPTY_DEBUGGER_STATE);
+
+  const { toast } = useToast();
+
+  const updateAuthState = (updates: Partial<AuthDebuggerState>) => {
+    setAuthState((prev) => ({ ...prev, ...updates }));
+  };
   const nextRequestId = useRef(0);
   const rootsRef = useRef<Root[]>([]);
 
@@ -151,13 +235,32 @@ const App = () => {
   const [nextToolCursor, setNextToolCursor] = useState<string | undefined>();
   const progressTokenRef = useRef(0);
 
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const hash = window.location.hash.slice(1);
+    const initialTab = hash || "resources";
+    return initialTab;
+  });
+
+  const currentTabRef = useRef<string>(activeTab);
+  const lastToolCallOriginTabRef = useRef<string>(activeTab);
+
+  useEffect(() => {
+    currentTabRef.current = activeTab;
+  }, [activeTab]);
+
   const { height: historyPaneHeight, handleDragStart } = useDraggablePane(300);
+  const {
+    width: sidebarWidth,
+    isDragging: isSidebarDragging,
+    handleDragStart: handleSidebarDragStart,
+  } = useDraggableSidebar(320);
 
   const {
     connectionStatus,
     serverCapabilities,
     mcpClient,
     requestHistory,
+    clearRequestHistory,
     makeRequest,
     sendNotification,
     handleCompletion,
@@ -170,16 +273,14 @@ const App = () => {
     args,
     sseUrl,
     env,
-    bearerToken,
+    customHeaders,
+    oauthClientId,
+    oauthClientSecret,
+    oauthScope,
     config,
+    connectionType,
     onNotification: (notification) => {
       setNotifications((prev) => [...prev, notification as ServerNotification]);
-    },
-    onStdErrNotification: (notification) => {
-      setStdErrNotifications((prev) => [
-        ...prev,
-        notification as StdErrNotification,
-      ]);
     },
     onPendingRequest: (request, resolve, reject) => {
       setPendingSampleRequests((prev) => [
@@ -187,8 +288,64 @@ const App = () => {
         { id: nextRequestId.current++, request, resolve, reject },
       ]);
     },
+    onElicitationRequest: (request, resolve) => {
+      const currentTab = lastToolCallOriginTabRef.current;
+
+      setPendingElicitationRequests((prev) => [
+        ...prev,
+        {
+          id: nextRequestId.current++,
+          request: {
+            id: nextRequestId.current,
+            message: request.params.message,
+            requestedSchema: request.params.requestedSchema,
+          },
+          originatingTab: currentTab,
+          resolve,
+          decline: (error: Error) => {
+            console.error("Elicitation request rejected:", error);
+          },
+        },
+      ]);
+
+      setActiveTab("elicitations");
+      window.location.hash = "elicitations";
+    },
     getRoots: () => rootsRef.current,
+    defaultLoggingLevel: logLevel,
   });
+
+  useEffect(() => {
+    if (serverCapabilities) {
+      const hash = window.location.hash.slice(1);
+
+      const validTabs = [
+        ...(serverCapabilities?.resources ? ["resources"] : []),
+        ...(serverCapabilities?.prompts ? ["prompts"] : []),
+        ...(serverCapabilities?.tools ? ["tools"] : []),
+        "ping",
+        "sampling",
+        "elicitations",
+        "roots",
+        "auth",
+      ];
+
+      const isValidTab = validTabs.includes(hash);
+
+      if (!isValidTab) {
+        const defaultTab = serverCapabilities?.resources
+          ? "resources"
+          : serverCapabilities?.prompts
+            ? "prompts"
+            : serverCapabilities?.tools
+              ? "tools"
+              : "ping";
+
+        setActiveTab(defaultTab);
+        window.location.hash = defaultTab;
+      }
+    }
+  }, [serverCapabilities]);
 
   useEffect(() => {
     localStorage.setItem("lastCommand", command);
@@ -204,27 +361,79 @@ const App = () => {
 
   useEffect(() => {
     localStorage.setItem("lastTransportType", transportType);
-  }, [transportType]);
+    // Update URL to match sample URL for the transport type if URL is empty or matches a sample URL
+    const sampleUrls: Record<string, string> = {
+      "streamable-http": "https://zip1.io/mcp",
+      sse: "https://docs.mcp.cloudflare.com/sse",
+    };
+    const currentSampleUrl = sampleUrls[transportType];
+    if (
+      currentSampleUrl &&
+      (!sseUrl ||
+        sseUrl === "https://zip1.io/mcp" ||
+        sseUrl === "https://docs.mcp.cloudflare.com/sse")
+    ) {
+      setSseUrl(currentSampleUrl);
+    }
+  }, [transportType, sseUrl]);
 
   useEffect(() => {
-    localStorage.setItem("lastBearerToken", bearerToken);
+    localStorage.setItem("lastConnectionType", connectionType);
+  }, [connectionType]);
+
+  useEffect(() => {
+    if (bearerToken) {
+      localStorage.setItem("lastBearerToken", bearerToken);
+    } else {
+      localStorage.removeItem("lastBearerToken");
+    }
   }, [bearerToken]);
 
   useEffect(() => {
-    localStorage.setItem(CONFIG_LOCAL_STORAGE_KEY, JSON.stringify(config));
+    if (headerName) {
+      localStorage.setItem("lastHeaderName", headerName);
+    } else {
+      localStorage.removeItem("lastHeaderName");
+    }
+  }, [headerName]);
+
+  useEffect(() => {
+    localStorage.setItem("lastCustomHeaders", JSON.stringify(customHeaders));
+  }, [customHeaders]);
+
+  // Auto-migrate from legacy auth when custom headers are empty but legacy auth exists
+  useEffect(() => {
+    if (customHeaders.length === 0 && (bearerToken || headerName)) {
+      const migratedHeaders = migrateFromLegacyAuth(bearerToken, headerName);
+      if (migratedHeaders.length > 0) {
+        setCustomHeaders(migratedHeaders);
+        // Clear legacy auth after migration
+        setBearerToken("");
+        setHeaderName("");
+      }
+    }
+  }, [bearerToken, headerName, customHeaders, setCustomHeaders]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthClientId", oauthClientId);
+  }, [oauthClientId]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthScope", oauthScope);
+  }, [oauthScope]);
+
+  useEffect(() => {
+    localStorage.setItem("lastOauthClientSecret", oauthClientSecret);
+  }, [oauthClientSecret]);
+
+  useEffect(() => {
+    saveInspectorConfig(CONFIG_LOCAL_STORAGE_KEY, config);
   }, [config]);
 
-  const hasProcessedRef = useRef(false);
-  // Auto-connect if serverUrl is provided in URL params (e.g. after OAuth callback)
-  useEffect(() => {
-    if (hasProcessedRef.current) {
-      // Only try to connect once
-      return;
-    }
-    const serverUrl = params.get("serverUrl");
-    if (serverUrl) {
+  const onOAuthConnect = useCallback(
+    (serverUrl: string) => {
       setSseUrl(serverUrl);
-      // setTransportType("sse");
+      setIsAuthDebuggerVisible(false);
       // Remove serverUrl from URL without reloading the page
       const newUrl = new URL(window.location.href);
       newUrl.searchParams.delete("serverUrl");
@@ -234,11 +443,83 @@ const App = () => {
         title: "Success",
         description: "Successfully authenticated with OAuth",
       });
-      hasProcessedRef.current = true;
-      // Connect to the server
-      connectMcpServer();
-    }
-  }, [connectMcpServer, toast]);
+      void connectMcpServer();
+    },
+    [connectMcpServer, toast],
+  );
+
+  const onOAuthDebugConnect = useCallback(
+    async ({
+      authorizationCode,
+      errorMsg,
+      restoredState,
+    }: {
+      authorizationCode?: string;
+      errorMsg?: string;
+      restoredState?: AuthDebuggerState;
+    }) => {
+      setIsAuthDebuggerVisible(true);
+
+      if (errorMsg) {
+        updateAuthState({
+          latestError: new Error(errorMsg),
+        });
+        return;
+      }
+
+      if (restoredState && authorizationCode) {
+        let currentState: AuthDebuggerState = {
+          ...restoredState,
+          authorizationCode,
+          oauthStep: "token_request",
+          isInitiatingAuth: true,
+          statusMessage: null,
+          latestError: null,
+        };
+
+        try {
+          const stateMachine = new OAuthStateMachine(sseUrl, (updates) => {
+            currentState = { ...currentState, ...updates };
+          });
+
+          while (
+            currentState.oauthStep !== "complete" &&
+            currentState.oauthStep !== "authorization_code"
+          ) {
+            await stateMachine.executeStep(currentState);
+          }
+
+          if (currentState.oauthStep === "complete") {
+            updateAuthState({
+              ...currentState,
+              statusMessage: {
+                type: "success",
+                message: "Authentication completed successfully",
+              },
+              isInitiatingAuth: false,
+            });
+          }
+        } catch (error) {
+          console.error("OAuth continuation error:", error);
+          updateAuthState({
+            latestError:
+              error instanceof Error ? error : new Error(String(error)),
+            statusMessage: {
+              type: "error",
+              message: `Failed to complete OAuth flow: ${error instanceof Error ? error.message : String(error)}`,
+            },
+            isInitiatingAuth: false,
+          });
+        }
+      } else if (authorizationCode) {
+        updateAuthState({
+          authorizationCode,
+          oauthStep: "token_request",
+        });
+      }
+    },
+    [sseUrl],
+  );
 
   // Define the handler function to set the sample URL
   const handleSetSampleUrl = (url: string) => {
@@ -248,18 +529,51 @@ const App = () => {
   };
 
   useEffect(() => {
-    fetch(`${getMCPProxyAddress(config)}/config`)
-      .then(response => {
+    const loadOAuthTokens = async () => {
+      try {
+        if (sseUrl) {
+          const key = getServerSpecificKey(SESSION_KEYS.TOKENS, sseUrl);
+          const tokens = sessionStorage.getItem(key);
+          if (tokens) {
+            const parsedTokens = await OAuthTokensSchema.parseAsync(
+              JSON.parse(tokens),
+            );
+            updateAuthState({
+              oauthTokens: parsedTokens,
+              oauthStep: "complete",
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error loading OAuth tokens:", error);
+      }
+    };
+
+    loadOAuthTokens();
+  }, [sseUrl]);
+
+  useEffect(() => {
+    const headers: HeadersInit = {};
+    const { token: proxyAuthToken, header: proxyAuthTokenHeader } =
+      getMCPProxyAuthToken(config);
+    if (proxyAuthToken) {
+      headers[proxyAuthTokenHeader] = `Bearer ${proxyAuthToken}`;
+    }
+
+    fetch(`${getMCPProxyAddress(config)}/config`, { headers })
+      .then((response) => {
         // Check if response is actually JSON
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          console.log('Config endpoint returned non-JSON response (likely index.html). Using default config.');
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          console.log(
+            "Config endpoint returned non-JSON response (likely index.html). Using default config.",
+          );
           // This is intentional - server returns index.html for config endpoint
           // Use default values instead of treating as an error
           return {
             defaultEnvironment: {},
-            defaultCommand: command || 'mcp-server-everything',
-            defaultArgs: args || '',
+            defaultCommand: command || "mcp-server-everything",
+            defaultArgs: args || "",
           };
         }
         return response.json();
@@ -273,24 +587,57 @@ const App = () => {
         if (data.defaultArgs) {
           setArgs(data.defaultArgs);
         }
+        if (data.defaultTransport) {
+          setTransportType(
+            data.defaultTransport as "stdio" | "sse" | "streamable-http",
+          );
+        }
+        if (data.defaultServerUrl) {
+          setSseUrl(data.defaultServerUrl);
+        }
       })
       .catch((error) => {
         console.error("Error fetching default environment:", error);
         // Continue with default values instead of failing
         console.log("Using default environment configuration");
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [config]);
 
   useEffect(() => {
     rootsRef.current = roots;
   }, [roots]);
 
   useEffect(() => {
-    if (!window.location.hash) {
-      window.location.hash = "resources";
+    if (mcpClient && !window.location.hash) {
+      const defaultTab = serverCapabilities?.resources
+        ? "resources"
+        : serverCapabilities?.prompts
+          ? "prompts"
+          : serverCapabilities?.tools
+            ? "tools"
+            : "ping";
+      window.location.hash = defaultTab;
+    } else if (!mcpClient && window.location.hash) {
+      // Clear hash when disconnected - completely remove the fragment
+      window.history.replaceState(
+        null,
+        "",
+        window.location.pathname + window.location.search,
+      );
     }
-  }, []);
+  }, [mcpClient, serverCapabilities]);
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.slice(1);
+      if (hash && hash !== activeTab) {
+        setActiveTab(hash);
+      }
+    };
+
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, [activeTab]);
 
   const handleApproveSampling = (id: number, result: CreateMessageResult) => {
     setPendingSampleRequests((prev) => {
@@ -304,6 +651,44 @@ const App = () => {
     setPendingSampleRequests((prev) => {
       const request = prev.find((r) => r.id === id);
       request?.reject(new Error("Sampling request rejected"));
+      return prev.filter((r) => r.id !== id);
+    });
+  };
+
+  const handleResolveElicitation = (
+    id: number,
+    response: ElicitationResponse,
+  ) => {
+    setPendingElicitationRequests((prev) => {
+      const request = prev.find((r) => r.id === id);
+      if (request) {
+        request.resolve(response);
+
+        if (request.originatingTab) {
+          const originatingTab = request.originatingTab;
+
+          const validTabs = [
+            ...(serverCapabilities?.resources ? ["resources"] : []),
+            ...(serverCapabilities?.prompts ? ["prompts"] : []),
+            ...(serverCapabilities?.tools ? ["tools"] : []),
+            "ping",
+            "sampling",
+            "elicitations",
+            "roots",
+            "auth",
+          ];
+
+          if (validTabs.includes(originatingTab)) {
+            setActiveTab(originatingTab);
+            window.location.hash = originatingTab;
+
+            setTimeout(() => {
+              setActiveTab(originatingTab);
+              window.location.hash = originatingTab;
+            }, 100);
+          }
+        }
+      }
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -365,7 +750,23 @@ const App = () => {
     setNextResourceTemplateCursor(response.nextCursor);
   };
 
+  const getPrompt = async (name: string, args: Record<string, string> = {}) => {
+    lastToolCallOriginTabRef.current = currentTabRef.current;
+
+    const response = await sendMCPRequest(
+      {
+        method: "prompts/get" as const,
+        params: { name, arguments: args },
+      },
+      GetPromptResultSchema,
+      "prompts",
+    );
+    setPromptContent(JSON.stringify(response, null, 2));
+  };
+
   const readResource = async (uri: string) => {
+    lastToolCallOriginTabRef.current = currentTabRef.current;
+
     const response = await sendMCPRequest(
       {
         method: "resources/read" as const,
@@ -374,7 +775,12 @@ const App = () => {
       ReadResourceResultSchema,
       "resources",
     );
-    setResourceContent(JSON.stringify(response, null, 2));
+    const content = JSON.stringify(response, null, 2);
+    setResourceContent(content);
+    setResourceContentMap((prev) => ({
+      ...prev,
+      [uri]: content,
+    }));
   };
 
   const subscribeToResource = async (uri: string) => {
@@ -422,18 +828,6 @@ const App = () => {
     setNextPromptCursor(response.nextCursor);
   };
 
-  const getPrompt = async (name: string, args: Record<string, string> = {}) => {
-    const response = await sendMCPRequest(
-      {
-        method: "prompts/get" as const,
-        params: { name, arguments: args },
-      },
-      GetPromptResultSchema,
-      "prompts",
-    );
-    setPromptContent(JSON.stringify(response, null, 2));
-  };
-
   const listTools = async () => {
     const response = await sendMCPRequest(
       {
@@ -445,16 +839,25 @@ const App = () => {
     );
     setTools(response.tools);
     setNextToolCursor(response.nextCursor);
+    cacheToolOutputSchemas(response.tools);
   };
 
   const callTool = async (name: string, params: Record<string, unknown>) => {
+    lastToolCallOriginTabRef.current = currentTabRef.current;
+
     try {
+      // Find the tool schema to clean parameters properly
+      const tool = tools.find((t) => t.name === name);
+      const cleanedParams = tool?.inputSchema
+        ? cleanParams(params, tool.inputSchema as JsonSchemaType)
+        : params;
+
       const response = await sendMCPRequest(
         {
           method: "tools/call" as const,
           params: {
             name,
-            arguments: params,
+            arguments: cleanedParams,
             _meta: {
               progressToken: progressTokenRef.current++,
             },
@@ -463,7 +866,10 @@ const App = () => {
         CompatibilityCallToolResultSchema,
         "tools",
       );
+
       setToolResult(response);
+      // Clear any validation errors since tool execution completed
+      setErrors((prev) => ({ ...prev, tools: null }));
     } catch (e) {
       const toolResult: CompatibilityCallToolResult = {
         content: [
@@ -475,11 +881,17 @@ const App = () => {
         isError: true,
       };
       setToolResult(toolResult);
+      // Clear validation errors - tool execution errors are shown in ToolResults
+      setErrors((prev) => ({ ...prev, tools: null }));
     }
   };
 
   const handleRootsChange = async () => {
     await sendNotification({ method: "notifications/roots/list_changed" });
+  };
+
+  const handleClearNotifications = () => {
+    setNotifications([]);
   };
 
   const sendLogLevelRequest = async (level: LoggingLevel) => {
@@ -493,78 +905,137 @@ const App = () => {
     setLogLevel(level);
   };
 
+  const AuthDebuggerWrapper = () => (
+    <TabsContent value="auth">
+      <AuthDebugger
+        serverUrl={sseUrl}
+        onBack={() => setIsAuthDebuggerVisible(false)}
+        authState={authState}
+        updateAuthState={updateAuthState}
+      />
+    </TabsContent>
+  );
+
   if (window.location.pathname === "/oauth/callback") {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
     );
     return (
       <Suspense fallback={<div>Loading...</div>}>
-        <OAuthCallback />
+        <OAuthCallback onConnect={onOAuthConnect} />
+      </Suspense>
+    );
+  }
+
+  if (window.location.pathname === "/oauth/callback/debug") {
+    const OAuthDebugCallback = React.lazy(
+      () => import("./components/OAuthDebugCallback"),
+    );
+    return (
+      <Suspense fallback={<div>Loading...</div>}>
+        <OAuthDebugCallback onConnect={onOAuthDebugConnect} />
       </Suspense>
     );
   }
 
   return (
-    <div className="flex flex-col h-screen"> {/* Outer container for banner + main content */}
+    <div className="flex flex-col h-screen">
+      {" "}
+      {/* Outer container for banner + main content */}
       {/* START: Added Top Banner (Minimal Styling) */}
       {/* Removed bg-card, border, text-card-foreground */}
-      <div className="p-2 flex items-center justify-between text-sm shrink-0 border-b border-border"> {/* Keep border */}
+      <div className="p-2 flex items-center justify-between text-sm shrink-0 border-b border-border">
+        {" "}
+        {/* Keep border */}
         {/* Simple link */}
-        <a href="https://mcp.garden" target="_blank" rel="noopener noreferrer" className="text-xs hover:underline">
+        <a
+          href="https://mcp.garden"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs hover:underline"
+        >
           &lt; Return to mcp.garden
         </a>
         <span className="text-center flex-grow mx-4">
-          Welcome to the MCP Inspector hosted by mcp.garden! This deployment is in beta for testing purposes only.
+          Welcome to the MCP Inspector hosted by mcp.garden! This deployment is
+          in beta for testing purposes only.
         </span>
         {/* Invisible spacer */}
-        <a href="https://mcp.garden" className="text-xs invisible">&lt; Return to mcp.garden</a>
+        <a href="https://mcp.garden" className="text-xs invisible">
+          &lt; Return to mcp.garden
+        </a>
       </div>
       <div className="flex h-screen bg-background">
-        <Sidebar
-          connectionStatus={connectionStatus}
-          transportType={transportType}
-          setTransportType={setTransportType as (type: "stdio" | "sse" | "streamableHttp") => void} // Cast to satisfy Sidebar prop type
-          command={command}
-          setCommand={setCommand}
-          args={args}
-          setArgs={setArgs}
-          sseUrl={sseUrl}
-          setSseUrl={setSseUrl}
-          onSetSampleUrl={handleSetSampleUrl} // Pass the new handler function
-          env={env}
-          setEnv={setEnv}
-          config={config}
-          setConfig={setConfig}
-          bearerToken={bearerToken}
-          setBearerToken={setBearerToken}
-          onConnect={connectMcpServer}
-          onDisconnect={disconnectMcpServer}
-          stdErrNotifications={stdErrNotifications}
-          logLevel={logLevel}
-          sendLogLevelRequest={sendLogLevelRequest}
-          loggingSupported={!!serverCapabilities?.logging || false}
-        />
+        <div
+          style={{
+            width: sidebarWidth,
+            minWidth: 200,
+            maxWidth: 600,
+            transition: isSidebarDragging ? "none" : "width 0.15s",
+          }}
+          className="bg-card border-r border-border flex flex-col h-full relative"
+        >
+          <Sidebar
+            connectionStatus={connectionStatus}
+            transportType={transportType}
+            setTransportType={setTransportType}
+            command={command}
+            setCommand={setCommand}
+            args={args}
+            setArgs={setArgs}
+            sseUrl={sseUrl}
+            setSseUrl={setSseUrl}
+            onSetSampleUrl={handleSetSampleUrl} // Pass the new handler function
+            env={env}
+            setEnv={setEnv}
+            config={config}
+            setConfig={setConfig}
+            customHeaders={customHeaders}
+            setCustomHeaders={setCustomHeaders}
+            oauthClientId={oauthClientId}
+            setOauthClientId={setOauthClientId}
+            oauthClientSecret={oauthClientSecret}
+            setOauthClientSecret={setOauthClientSecret}
+            oauthScope={oauthScope}
+            setOauthScope={setOauthScope}
+            onConnect={connectMcpServer}
+            onDisconnect={disconnectMcpServer}
+            logLevel={logLevel}
+            sendLogLevelRequest={sendLogLevelRequest}
+            loggingSupported={!!serverCapabilities?.logging || false}
+            connectionType={connectionType}
+            setConnectionType={setConnectionType}
+          />
+          <div
+            onMouseDown={handleSidebarDragStart}
+            style={{
+              cursor: "col-resize",
+              position: "absolute",
+              top: 0,
+              right: 0,
+              width: 6,
+              height: "100%",
+              zIndex: 10,
+              background: isSidebarDragging
+                ? "rgba(0,0,0,0.08)"
+                : "transparent",
+            }}
+            aria-label="Resize sidebar"
+            data-testid="sidebar-drag-handle"
+          />
+        </div>
         <div className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-auto">
             {mcpClient ? (
               <Tabs
-                defaultValue={
-                  Object.keys(serverCapabilities ?? {}).includes(
-                    window.location.hash.slice(1),
-                  )
-                    ? window.location.hash.slice(1)
-                    : serverCapabilities?.resources
-                      ? "resources"
-                      : serverCapabilities?.prompts
-                        ? "prompts"
-                        : serverCapabilities?.tools
-                          ? "tools"
-                          : "ping"
-                }
+                value={activeTab}
                 className="w-full p-4"
-                onValueChange={(value) => (window.location.hash = value)}
+                onValueChange={(value) => {
+                  setActiveTab(value);
+                  window.location.hash = value;
+                }}
               >
-                <TabsList className="mb-4 p-2">
+                <TabsList className="mb-4 py-0">
                   <TabsTrigger
                     value="resources"
                     disabled={!serverCapabilities?.resources}
@@ -599,26 +1070,51 @@ const App = () => {
                       </span>
                     )}
                   </TabsTrigger>
+                  <TabsTrigger value="elicitations" className="relative">
+                    <MessageSquare className="w-4 h-4 mr-2" />
+                    Elicitations
+                    {pendingElicitationRequests.length > 0 && (
+                      <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                        {pendingElicitationRequests.length}
+                      </span>
+                    )}
+                  </TabsTrigger>
                   <TabsTrigger value="roots">
                     <FolderTree className="w-4 h-4 mr-2" />
                     Roots
                   </TabsTrigger>
-                  {/* Add Chat Tab Trigger */}
                   <TabsTrigger value="chat">
                     <MessageCircle className="w-4 h-4 mr-2" />
                     Chat
+                  </TabsTrigger>
+                  <TabsTrigger value="auth">
+                    <Key className="w-4 h-4 mr-2" />
+                    Auth
                   </TabsTrigger>
                 </TabsList>
 
                 <div className="w-full">
                   {!serverCapabilities?.resources &&
-                    !serverCapabilities?.prompts &&
-                    !serverCapabilities?.tools ? (
-                    <div className="flex items-center justify-center p-4">
-                      <p className="text-lg text-gray-500">
-                        The connected server does not support any MCP capabilities
-                      </p>
-                    </div>
+                  !serverCapabilities?.prompts &&
+                  !serverCapabilities?.tools ? (
+                    <>
+                      <div className="flex items-center justify-center p-4">
+                        <p className="text-lg text-gray-500 dark:text-gray-400">
+                          The connected server does not support any MCP
+                          capabilities
+                        </p>
+                      </div>
+                      <PingTab
+                        onPingClick={() => {
+                          void sendMCPRequest(
+                            {
+                              method: "ping" as const,
+                            },
+                            EmptyResultSchema,
+                          );
+                        }}
+                      />
+                    </>
                   ) : (
                     <>
                       <ResourcesTab
@@ -686,6 +1182,7 @@ const App = () => {
                         setSelectedPrompt={(prompt) => {
                           clearError("prompts");
                           setSelectedPrompt(prompt);
+                          setPromptContent("");
                         }}
                         handleCompletion={handleCompletion}
                         completionsSupported={completionsSupported}
@@ -702,6 +1199,7 @@ const App = () => {
                         clearTools={() => {
                           setTools([]);
                           setNextToolCursor(undefined);
+                          cacheToolOutputSchemas([]);
                         }}
                         callTool={async (name, params) => {
                           clearError("tools");
@@ -717,6 +1215,11 @@ const App = () => {
                         toolResult={toolResult}
                         nextCursor={nextToolCursor}
                         error={errors.tools}
+                        resourceContent={resourceContentMap}
+                        onReadResource={(uri: string) => {
+                          clearError("resources");
+                          readResource(uri);
+                        }}
                       />
                       <ConsoleTab />
                       <PingTab
@@ -734,26 +1237,52 @@ const App = () => {
                         onApprove={handleApproveSampling}
                         onReject={handleRejectSampling}
                       />
+                      <ElicitationTab
+                        pendingRequests={pendingElicitationRequests}
+                        onResolve={handleResolveElicitation}
+                      />
                       <RootsTab
                         roots={roots}
                         setRoots={setRoots}
                         onRootsChange={handleRootsChange}
                       />
-                      {/* Add Chat Tab Content */}
-                      <ChatTab
-                        mcpClient={mcpClient}
-                        makeRequest={makeRequest}
-                        connectionStatus={connectionStatus}
-                      />
+                      <TabsContent value="chat">
+                        <ChatTab
+                          mcpClient={mcpClient}
+                          makeRequest={makeRequest}
+                          connectionStatus={connectionStatus}
+                        />
+                      </TabsContent>
+                      <AuthDebuggerWrapper />
                     </>
                   )}
                 </div>
               </Tabs>
+            ) : isAuthDebuggerVisible ? (
+              <Tabs
+                defaultValue={"auth"}
+                className="w-full p-4"
+                onValueChange={(value) => (window.location.hash = value)}
+              >
+                <AuthDebuggerWrapper />
+              </Tabs>
             ) : (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-lg text-gray-500">
+              <div className="flex flex-col items-center justify-center h-full gap-4">
+                <p className="text-lg text-gray-500 dark:text-gray-400">
                   Connect to an MCP server to start inspecting
                 </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-muted-foreground">
+                    Need to configure authentication?
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsAuthDebuggerVisible(true)}
+                  >
+                    Open Auth Settings
+                  </Button>
+                </div>
               </div>
             )}
           </div>
@@ -764,7 +1293,7 @@ const App = () => {
             }}
           >
             <div
-              className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50"
+              className="absolute w-full h-4 -top-2 cursor-row-resize flex items-center justify-center hover:bg-accent/50 dark:hover:bg-input/40"
               onMouseDown={handleDragStart}
             >
               <div className="w-8 h-1 rounded-full bg-border" />
@@ -773,6 +1302,8 @@ const App = () => {
               <HistoryAndNotifications
                 requestHistory={requestHistory}
                 serverNotifications={notifications}
+                onClearHistory={clearRequestHistory}
+                onClearNotifications={handleClearNotifications}
               />
             </div>
           </div>

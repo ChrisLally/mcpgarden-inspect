@@ -2,6 +2,7 @@ export type ConfigItem = {
   label: string;
   description: string;
   value: string | number | boolean;
+  is_session_item: boolean;
 };
 
 /**
@@ -13,7 +14,8 @@ export type ConfigItem = {
  */
 export type InspectorConfig = {
   /**
-   * Maximum time in milliseconds to wait for a response from the MCP server before timing out.
+   * Client-side timeout in milliseconds. The Inspector will cancel the request if no response
+   * is received within this time. Note: This is independent of any server-side timeouts.
    */
   MCP_SERVER_REQUEST_TIMEOUT: ConfigItem;
 
@@ -33,4 +35,9 @@ export type InspectorConfig = {
    * The full address of the MCP Proxy Server, in case it is running on a non-default address. Example: http://10.1.1.22:5577
    */
   MCP_PROXY_FULL_ADDRESS: ConfigItem;
+
+  /**
+   * Session token for authenticating with the MCP Proxy Server. This token is displayed in the proxy server console on startup.
+   */
+  MCP_PROXY_AUTH_TOKEN: ConfigItem;
 };

@@ -23,6 +23,7 @@ RUN npm run build --workspace=client
 RUN npm run build --workspace=server
 
 # Expose the port the app runs on (default inspector server port)
+# Cloud Run will set PORT environment variable
 EXPOSE 3000
 
 # Define the command to run the application

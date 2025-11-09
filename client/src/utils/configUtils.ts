@@ -1,24 +1,41 @@
 import { InspectorConfig } from "@/lib/configurationTypes";
-// Removed unused import: import { DEFAULT_MCP_PROXY_LISTEN_PORT } from "@/lib/constants";
+import {
+  DEFAULT_MCP_PROXY_LISTEN_PORT,
+  DEFAULT_INSPECTOR_CONFIG,
+} from "@/lib/constants";
+
+const getSearchParam = (key: string): string | null => {
+  try {
+    const url = new URL(window.location.href);
+    return url.searchParams.get(key);
+  } catch {
+    return null;
+  }
+};
 
 export const getMCPProxyAddress = (config: InspectorConfig): string => {
   try {
     // If a full proxy address is explicitly configured, use it
-    const proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
+    let proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
     if (proxyFullAddress && proxyFullAddress.trim()) {
+      proxyFullAddress = proxyFullAddress.replace(/\/+$/, "");
       console.log(`Using configured proxy address: ${proxyFullAddress}`);
       return proxyFullAddress;
     }
 
+    // Check for proxy port from query params, otherwise use current window port or default
+    const queryParamPort = getSearchParam("MCP_PROXY_PORT");
+    const proxyPort =
+      queryParamPort || window.location.port || DEFAULT_MCP_PROXY_LISTEN_PORT;
+
     // Otherwise, derive it from the current window location
-    const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-    const derivedAddress = `${window.location.protocol}//${window.location.hostname}:${port}`;
+    const derivedAddress = `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
     console.log(`Using derived proxy address: ${derivedAddress}`);
     return derivedAddress;
   } catch (error) {
     console.error("Error in getMCPProxyAddress:", error);
     // Fallback to a safe default based on the current hostname
-    const fallbackAddress = `${window.location.protocol}//${window.location.hostname}`;
+    const fallbackAddress = `${window.location.protocol}//${window.location.hostname}:${window.location.port || DEFAULT_MCP_PROXY_LISTEN_PORT}`;
     console.log(`Using fallback proxy address: ${fallbackAddress}`);
     return fallbackAddress;
   }
@@ -38,4 +55,151 @@ export const getMCPServerRequestMaxTotalTimeout = (
   config: InspectorConfig,
 ): number => {
   return config.MCP_REQUEST_MAX_TOTAL_TIMEOUT.value as number;
+};
+
+export const getMCPProxyAuthToken = (
+  config: InspectorConfig,
+): {
+  token: string;
+  header: string;
+} => {
+  return {
+    token: config.MCP_PROXY_AUTH_TOKEN.value as string,
+    header: "X-MCP-Proxy-Auth",
+  };
+};
+
+export const getInitialTransportType = ():
+  | "stdio"
+  | "sse"
+  | "streamable-http" => {
+  const param = getSearchParam("transport");
+  if (param === "stdio" || param === "sse" || param === "streamable-http") {
+    return param;
+  }
+  return (
+    (localStorage.getItem("lastTransportType") as
+      | "stdio"
+      | "sse"
+      | "streamable-http") || "streamable-http" // Default to streamable-http
+  );
+};
+
+export const getInitialSseUrl = (): string => {
+  const param = getSearchParam("serverUrl");
+  if (param) return param;
+  const savedUrl = localStorage.getItem("lastSseUrl");
+  // Only use saved URL if it's not empty
+  if (savedUrl && savedUrl.trim()) return savedUrl;
+  // Default based on transport type - always return a sample URL
+  const transportType = getInitialTransportType();
+  return transportType === "streamable-http"
+    ? "https://zip1.io/mcp"
+    : "https://docs.mcp.cloudflare.com/sse";
+};
+
+export const getInitialCommand = (): string => {
+  const param = getSearchParam("serverCommand");
+  if (param) return param;
+  return localStorage.getItem("lastCommand") || "";
+};
+
+export const getInitialArgs = (): string => {
+  const param = getSearchParam("serverArgs");
+  if (param) return param;
+  return localStorage.getItem("lastArgs") || "";
+};
+
+// Returns a map of config key -> value from query params if present
+export const getConfigOverridesFromQueryParams = (
+  defaultConfig: InspectorConfig,
+): Partial<InspectorConfig> => {
+  const url = new URL(window.location.href);
+  const overrides: Partial<InspectorConfig> = {};
+  for (const key of Object.keys(defaultConfig)) {
+    const param = url.searchParams.get(key);
+    if (param !== null) {
+      // Try to coerce to correct type based on default value
+      const defaultValue = defaultConfig[key as keyof InspectorConfig].value;
+      let value: string | number | boolean = param;
+      if (typeof defaultValue === "number") {
+        value = Number(param);
+      } else if (typeof defaultValue === "boolean") {
+        value = param === "true";
+      }
+      overrides[key as keyof InspectorConfig] = {
+        ...defaultConfig[key as keyof InspectorConfig],
+        value,
+      };
+    }
+  }
+  return overrides;
+};
+
+export const initializeInspectorConfig = (
+  localStorageKey: string,
+): InspectorConfig => {
+  // Read persistent config from localStorage
+  const savedPersistentConfig = localStorage.getItem(localStorageKey);
+  // Read ephemeral config from sessionStorage
+  const savedEphemeralConfig = sessionStorage.getItem(
+    `${localStorageKey}_ephemeral`,
+  );
+
+  // Start with default config
+  let baseConfig = { ...DEFAULT_INSPECTOR_CONFIG };
+
+  // Apply saved persistent config
+  if (savedPersistentConfig) {
+    const parsedPersistentConfig = JSON.parse(savedPersistentConfig);
+    baseConfig = { ...baseConfig, ...parsedPersistentConfig };
+  }
+
+  // Apply saved ephemeral config
+  if (savedEphemeralConfig) {
+    const parsedEphemeralConfig = JSON.parse(savedEphemeralConfig);
+    baseConfig = { ...baseConfig, ...parsedEphemeralConfig };
+  }
+
+  // Ensure all config items have the latest labels/descriptions from defaults
+  for (const [key, value] of Object.entries(baseConfig)) {
+    baseConfig[key as keyof InspectorConfig] = {
+      ...value,
+      label: DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].label,
+      description:
+        DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].description,
+      is_session_item:
+        DEFAULT_INSPECTOR_CONFIG[key as keyof InspectorConfig].is_session_item,
+    };
+  }
+
+  // Apply query param overrides
+  const overrides = getConfigOverridesFromQueryParams(DEFAULT_INSPECTOR_CONFIG);
+  return { ...baseConfig, ...overrides };
+};
+
+export const saveInspectorConfig = (
+  localStorageKey: string,
+  config: InspectorConfig,
+): void => {
+  const persistentConfig: Partial<InspectorConfig> = {};
+  const ephemeralConfig: Partial<InspectorConfig> = {};
+
+  // Split config based on is_session_item flag
+  for (const [key, value] of Object.entries(config)) {
+    if (value.is_session_item) {
+      ephemeralConfig[key as keyof InspectorConfig] = value;
+    } else {
+      persistentConfig[key as keyof InspectorConfig] = value;
+    }
+  }
+
+  // Save persistent config to localStorage
+  localStorage.setItem(localStorageKey, JSON.stringify(persistentConfig));
+
+  // Save ephemeral config to sessionStorage
+  sessionStorage.setItem(
+    `${localStorageKey}_ephemeral`,
+    JSON.stringify(ephemeralConfig),
+  );
 };

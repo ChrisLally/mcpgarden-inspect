@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   ResourceReference,
   PromptReference,
@@ -15,9 +15,11 @@ function debounce<T extends (...args: any[]) => PromiseLike<void>>(
   wait: number,
 ): (...args: Parameters<T>) => void {
   let timeout: ReturnType<typeof setTimeout>;
-  return function (...args: Parameters<T>) {
+  return (...args: Parameters<T>) => {
     clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
+    timeout = setTimeout(() => {
+      void func(...args);
+    }, wait);
   };
 }
 
@@ -26,6 +28,7 @@ export function useCompletionState(
     ref: ResourceReference | PromptReference,
     argName: string,
     value: string,
+    context?: Record<string, string>,
     signal?: AbortSignal,
   ) => Promise<string[]>,
   completionsSupported: boolean = true,
@@ -58,12 +61,13 @@ export function useCompletionState(
     });
   }, [cleanup]);
 
-  const requestCompletions = useCallback(
-    debounce(
+  const requestCompletions = useMemo(() => {
+    return debounce(
       async (
         ref: ResourceReference | PromptReference,
         argName: string,
         value: string,
+        context?: Record<string, string>,
       ) => {
         if (!completionsSupported) {
           return;
@@ -80,10 +84,15 @@ export function useCompletionState(
         }));
 
         try {
+          if (context !== undefined) {
+            delete context[argName];
+          }
+
           const values = await handleCompletion(
             ref,
             argName,
             value,
+            context,
             abortController.signal,
           );
 
@@ -94,7 +103,8 @@ export function useCompletionState(
               loading: { ...prev.loading, [argName]: false },
             }));
           }
-        } catch (err) {
+        } catch {
+          console.error("completion failed");
           if (!abortController.signal.aborted) {
             setState((prev) => ({
               ...prev,
@@ -108,9 +118,8 @@ export function useCompletionState(
         }
       },
       debounceMs,
-    ),
-    [handleCompletion, completionsSupported, cleanup, debounceMs],
-  );
+    );
+  }, [handleCompletion, completionsSupported, cleanup, debounceMs]);
 
   // Clear completions when support status changes
   useEffect(() => {

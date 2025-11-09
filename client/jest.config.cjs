@@ -1,6 +1,6 @@
 module.exports = {
   preset: "ts-jest",
-  testEnvironment: "jsdom",
+  testEnvironment: "jest-fixed-jsdom",
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
     "\\.css$": "<rootDir>/src/__mocks__/styleMock.js",
@@ -21,6 +21,7 @@ module.exports = {
     "/node_modules/",
     "/dist/",
     "/bin/",
+    "/e2e/",
     "\\.config\\.(js|ts|cjs|mjs)$",
   ],
   // Exclude the same patterns from coverage reports
@@ -28,6 +29,8 @@ module.exports = {
     "/node_modules/",
     "/dist/",
     "/bin/",
+    "/e2e/",
     "\\.config\\.(js|ts|cjs|mjs)$",
   ],
+  randomize: true,
 };

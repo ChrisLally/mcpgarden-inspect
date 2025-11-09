@@ -43,11 +43,12 @@ const PromptsTab = ({
   clearPrompts: () => void;
   getPrompt: (name: string, args: Record<string, string>) => void;
   selectedPrompt: Prompt | null;
-  setSelectedPrompt: (prompt: Prompt) => void;
+  setSelectedPrompt: (prompt: Prompt | null) => void;
   handleCompletion: (
     ref: PromptReference | ResourceReference,
     argName: string,
     value: string,
+    context?: Record<string, string>,
   ) => Promise<string[]>;
   completionsSupported: boolean;
   promptContent: string;
@@ -62,9 +63,7 @@ const PromptsTab = ({
     clearCompletions();
   }, [clearCompletions, selectedPrompt]);
 
-  const handleInputChange = async (argName: string, value: string) => {
-    setPromptArgs((prev) => ({ ...prev, [argName]: value }));
-
+  const triggerCompletions = (argName: string, value: string) => {
     if (selectedPrompt) {
       requestCompletions(
         {
@@ -73,8 +72,19 @@ const PromptsTab = ({
         },
         argName,
         value,
+        promptArgs,
       );
     }
+  };
+
+  const handleInputChange = async (argName: string, value: string) => {
+    setPromptArgs((prev) => ({ ...prev, [argName]: value }));
+    triggerCompletions(argName, value);
+  };
+
+  const handleFocus = async (argName: string) => {
+    const currentValue = promptArgs[argName] || "";
+    triggerCompletions(argName, currentValue);
   };
 
   const handleGetPrompt = () => {
@@ -89,26 +99,29 @@ const PromptsTab = ({
         <ListPane
           items={prompts}
           listItems={listPrompts}
-          clearItems={clearPrompts}
+          clearItems={() => {
+            clearPrompts();
+            setSelectedPrompt(null);
+          }}
           setSelectedItem={(prompt) => {
             setSelectedPrompt(prompt);
             setPromptArgs({});
           }}
           renderItem={(prompt) => (
-            <>
+            <div className="flex flex-col items-start">
               <span className="flex-1">{prompt.name}</span>
-              <span className="text-sm text-gray-500">
+              <span className="text-sm text-gray-500 text-left">
                 {prompt.description}
               </span>
-            </>
+            </div>
           )}
           title="Prompts"
           buttonText={nextCursor ? "List More Prompts" : "List Prompts"}
           isButtonDisabled={!nextCursor && prompts.length > 0}
         />
 
-        <div className="bg-card rounded-lg shadow">
-          <div className="p-4 border-b border-gray-200">
+        <div className="bg-card border border-border rounded-lg shadow">
+          <div className="p-4 border-b border-gray-200 dark:border-border">
             <h3 className="font-semibold">
               {selectedPrompt ? selectedPrompt.name : "Select a prompt"}
             </h3>
@@ -118,12 +131,14 @@ const PromptsTab = ({
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{error}</AlertDescription>
+                <AlertDescription className="break-all">
+                  {error}
+                </AlertDescription>
               </Alert>
             ) : selectedPrompt ? (
               <div className="space-y-4">
                 {selectedPrompt.description && (
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
                     {selectedPrompt.description}
                   </p>
                 )}
@@ -138,6 +153,7 @@ const PromptsTab = ({
                       onInputChange={(value) =>
                         handleInputChange(arg.name, value)
                       }
+                      onFocus={() => handleFocus(arg.name)}
                       options={completions[arg.name] || []}
                     />
 

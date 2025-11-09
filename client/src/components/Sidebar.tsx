@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   Play,
   ChevronDown,
@@ -12,6 +12,8 @@ import {
   Settings,
   HelpCircle,
   RefreshCwOff,
+  Copy,
+  CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,25 +24,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { StdErrNotification } from "@/lib/notificationTypes";
 import {
   LoggingLevel,
   LoggingLevelSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { InspectorConfig } from "@/lib/configurationTypes";
 import { ConnectionStatus } from "@/lib/constants";
-import useTheme from "../lib/useTheme";
+import useTheme from "../lib/hooks/useTheme";
 import { version } from "../../../package.json";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import CustomHeaders from "./CustomHeaders";
+import { CustomHeaders as CustomHeadersType } from "@/lib/types/customHeaders";
+import { useToast } from "../lib/hooks/useToast";
 
 interface SidebarProps {
   connectionStatus: ConnectionStatus;
-  transportType: "stdio" | "sse" | "streamableHttp";
-  setTransportType: (type: "stdio" | "sse" | "streamableHttp") => void;
+  transportType: "stdio" | "sse" | "streamable-http";
+  setTransportType: (type: "stdio" | "sse" | "streamable-http") => void;
   command: string;
   setCommand: (command: string) => void;
   args: string;
@@ -50,16 +55,24 @@ interface SidebarProps {
   onSetSampleUrl: (url: string) => void; // Add new prop for the handler
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
-  bearerToken: string;
-  setBearerToken: (token: string) => void;
+  // Custom headers support
+  customHeaders: CustomHeadersType;
+  setCustomHeaders: (headers: CustomHeadersType) => void;
+  oauthClientId: string;
+  setOauthClientId: (id: string) => void;
+  oauthClientSecret: string;
+  setOauthClientSecret: (secret: string) => void;
+  oauthScope: string;
+  setOauthScope: (scope: string) => void;
   onConnect: () => void;
   onDisconnect: () => void;
-  stdErrNotifications: StdErrNotification[];
   logLevel: LoggingLevel;
   sendLogLevelRequest: (level: LoggingLevel) => void;
   loggingSupported: boolean;
   config: InspectorConfig;
   setConfig: (config: InspectorConfig) => void;
+  connectionType: "direct" | "proxy";
+  setConnectionType: (type: "direct" | "proxy") => void;
 }
 
 const Sidebar = ({
@@ -75,26 +88,152 @@ const Sidebar = ({
   onSetSampleUrl, // Destructure the new prop
   env,
   setEnv,
-  bearerToken,
-  setBearerToken,
+  customHeaders,
+  setCustomHeaders,
+  oauthClientId,
+  setOauthClientId,
+  oauthClientSecret,
+  setOauthClientSecret,
+  oauthScope,
+  setOauthScope,
   onConnect,
   onDisconnect,
-  stdErrNotifications,
   logLevel,
   sendLogLevelRequest,
   loggingSupported,
   config,
   setConfig,
+  connectionType,
+  setConnectionType,
 }: SidebarProps) => {
   const [theme, setTheme] = useTheme();
   const [showEnvVars, setShowEnvVars] = useState(false);
-  const [showBearerToken, setShowBearerToken] = useState(false);
+  const [showAuthConfig, setShowAuthConfig] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [shownEnvVars, setShownEnvVars] = useState<Set<string>>(new Set());
+  const [showClientSecret, setShowClientSecret] = useState(false);
+  const [copiedServerEntry, setCopiedServerEntry] = useState(false);
+  const [copiedServerFile, setCopiedServerFile] = useState(false);
+  const { toast } = useToast();
+
+  const connectionTypeTip =
+    "Connect to server directly (requires CORS config on server) or via MCP Inspector Proxy";
+  // Reusable error reporter for copy actions
+  const reportError = useCallback(
+    (error: unknown) => {
+      toast({
+        title: "Error",
+        description: `Failed to copy config: ${error instanceof Error ? error.message : String(error)}`,
+        variant: "destructive",
+      });
+    },
+    [toast],
+  );
+
+  // Shared utility function to generate server config
+  const generateServerConfig = useCallback(() => {
+    if (transportType === "stdio") {
+      return {
+        command,
+        args: args.trim() ? args.split(/\s+/) : [],
+        env: { ...env },
+      };
+    }
+    if (transportType === "sse") {
+      return {
+        type: "sse",
+        url: sseUrl,
+        note: "For SSE connections, add this URL directly in your MCP Client",
+      };
+    }
+    if (transportType === "streamable-http") {
+      return {
+        type: "streamable-http",
+        url: sseUrl,
+        note: "For Streamable HTTP connections, add this URL directly in your MCP Client",
+      };
+    }
+    return {};
+  }, [transportType, command, args, env, sseUrl]);
+
+  // Memoized config entry generator
+  const generateMCPServerEntry = useCallback(() => {
+    return JSON.stringify(generateServerConfig(), null, 4);
+  }, [generateServerConfig]);
+
+  // Memoized config file generator
+  const generateMCPServerFile = useCallback(() => {
+    return JSON.stringify(
+      {
+        mcpServers: {
+          "default-server": generateServerConfig(),
+        },
+      },
+      null,
+      4,
+    );
+  }, [generateServerConfig]);
+
+  // Memoized copy handlers
+  const handleCopyServerEntry = useCallback(() => {
+    try {
+      const configJson = generateMCPServerEntry();
+      navigator.clipboard
+        .writeText(configJson)
+        .then(() => {
+          setCopiedServerEntry(true);
+
+          toast({
+            title: "Config entry copied",
+            description:
+              transportType === "stdio"
+                ? "Server configuration has been copied to clipboard. Add this to your mcp.json inside the 'mcpServers' object with your preferred server name."
+                : transportType === "streamable-http"
+                  ? "Streamable HTTP URL has been copied. Use this URL directly in your MCP Client."
+                  : "SSE URL has been copied. Use this URL directly in your MCP Client.",
+          });
+
+          setTimeout(() => {
+            setCopiedServerEntry(false);
+          }, 2000);
+        })
+        .catch((error) => {
+          reportError(error);
+        });
+    } catch (error) {
+      reportError(error);
+    }
+  }, [generateMCPServerEntry, transportType, toast, reportError]);
+
+  const handleCopyServerFile = useCallback(() => {
+    try {
+      const configJson = generateMCPServerFile();
+      navigator.clipboard
+        .writeText(configJson)
+        .then(() => {
+          setCopiedServerFile(true);
+
+          toast({
+            title: "Servers file copied",
+            description:
+              "Servers configuration has been copied to clipboard. Add this to your mcp.json file. Current testing server will be added as 'default-server'",
+          });
+
+          setTimeout(() => {
+            setCopiedServerFile(false);
+          }, 2000);
+        })
+        .catch((error) => {
+          reportError(error);
+        });
+    } catch (error) {
+      reportError(error);
+    }
+  }, [generateMCPServerFile, toast, reportError]);
 
   return (
-    <div className="w-80 bg-card border-r border-border flex flex-col h-full">
-      <div className="flex items-center justify-between p-4 border-b border-gray-200">
+    <div className="bg-card border-r border-border flex flex-col h-full">
+      <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-border">
         <div className="flex items-center">
           <h1 className="ml-2 text-lg font-semibold">
             MCP Inspector v{version}
@@ -113,7 +252,7 @@ const Sidebar = ({
             </label>
             <Select
               value={transportType}
-              onValueChange={(value: "stdio" | "sse" | "streamableHttp") =>
+              onValueChange={(value: "stdio" | "sse" | "streamable-http") =>
                 setTransportType(value)
               }
             >
@@ -123,13 +262,20 @@ const Sidebar = ({
               <SelectContent>
                 <SelectItem value="stdio">STDIO</SelectItem>
                 <SelectItem value="sse">SSE</SelectItem>
-                <SelectItem value="streamableHttp">Streamable HTTP</SelectItem>
+                <SelectItem value="streamable-http">Streamable HTTP</SelectItem>
               </SelectContent>
             </Select>
           </div>
 
           {transportType === "stdio" ? (
             <>
+              <Alert>
+                <AlertDescription>
+                  ⚠️ STDIO transport is intended for local development only. It
+                  requires direct access to your local machine to execute
+                  commands.
+                </AlertDescription>
+              </Alert>
               <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="command-input">
                   Command
@@ -139,7 +285,9 @@ const Sidebar = ({
                   placeholder="Command"
                   value={command}
                   onChange={(e) => setCommand(e.target.value)}
+                  onBlur={(e) => setCommand(e.target.value.trim())}
                   className="font-mono"
+                  disabled
                 />
               </div>
               <div className="space-y-2">
@@ -155,6 +303,7 @@ const Sidebar = ({
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
                   className="font-mono"
+                  disabled
                 />
               </div>
             </>
@@ -164,63 +313,80 @@ const Sidebar = ({
                 <label className="text-sm font-medium" htmlFor="sse-url-input">
                   URL
                 </label>
-                <Input
-                  id="sse-url-input"
-                  placeholder="URL"
-                  value={sseUrl}
-                  onChange={(e) => setSseUrl(e.target.value)}
-                  className="font-mono"
-                />
+                {sseUrl ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Input
+                        id="sse-url-input"
+                        placeholder="URL"
+                        value={sseUrl}
+                        onChange={(e) => setSseUrl(e.target.value)}
+                        className="font-mono"
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>{sseUrl}</TooltipContent>
+                  </Tooltip>
+                ) : (
+                  <Input
+                    id="sse-url-input"
+                    placeholder="URL"
+                    value={sseUrl}
+                    onChange={(e) => setSseUrl(e.target.value)}
+                    className="font-mono"
+                  />
+                )}
                 {/* Add the new button here */}
                 <Button
                   variant="outline"
                   size="sm"
                   className="w-full mt-1 text-xs"
                   onClick={() => {
-                    const sampleUrl = transportType === 'streamableHttp'
-                      ? "https://test.mcp.garden/mcp" // Updated URL for Streamable HTTP
-                      : "https://gitmcp.io/modelcontextprotocol/servers/tree/main/src/time"; // URL for SSE
+                    const sampleUrl =
+                      transportType === "streamable-http"
+                        ? "https://zip1.io/mcp" // Streamable HTTP URL
+                        : "https://docs.mcp.cloudflare.com/sse"; // Cloudflare SSE URL
                     onSetSampleUrl(sampleUrl);
                   }}
                 >
-                  Use Sample URL ({transportType === 'streamableHttp' ? 'test.mcp.garden' : 'gitmcp.io time'})
+                  Use Sample URL (
+                  {transportType === "streamable-http"
+                    ? "zip1.io"
+                    : "docs.mcp.cloudflare.com"}
+                  )
                 </Button>
               </div>
-              <div className="space-y-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowBearerToken(!showBearerToken)}
-                  className="flex items-center w-full"
-                  aria-expanded={showBearerToken}
-                >
-                  {showBearerToken ? (
-                    <ChevronDown className="w-4 h-4 mr-2" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4 mr-2" />
-                  )}
-                  Authentication
-                </Button>
-                {showBearerToken && (
+
+              {/* Connection Type switch - only visible for non-STDIO transport types */}
+              <Tooltip>
+                <TooltipTrigger asChild>
                   <div className="space-y-2">
                     <label
                       className="text-sm font-medium"
-                      htmlFor="bearer-token-input"
+                      htmlFor="connection-type-select"
                     >
-                      Bearer Token
+                      Connection Type
                     </label>
-                    <Input
-                      id="bearer-token-input"
-                      placeholder="Bearer Token"
-                      value={bearerToken}
-                      onChange={(e) => setBearerToken(e.target.value)}
-                      className="font-mono"
-                      type="password"
-                    />
+                    <Select
+                      value={connectionType}
+                      onValueChange={(value: "direct" | "proxy") =>
+                        setConnectionType(value)
+                      }
+                    >
+                      <SelectTrigger id="connection-type-select">
+                        <SelectValue placeholder="Select connection type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="proxy">Via Proxy</SelectItem>
+                        <SelectItem value="direct">Direct</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
-                )}
-              </div>
+                </TooltipTrigger>
+                <TooltipContent>{connectionTypeTip}</TooltipContent>
+              </Tooltip>
             </>
           )}
+
           {transportType === "stdio" && (
             <div className="space-y-2">
               <Button
@@ -346,6 +512,140 @@ const Sidebar = ({
             </div>
           )}
 
+          {/* Always show both copy buttons for all transport types */}
+          <div className="grid grid-cols-2 gap-2 mt-2">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyServerEntry}
+                  className="w-full"
+                >
+                  {copiedServerEntry ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Server Entry
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy Server Entry</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyServerFile}
+                  className="w-full"
+                >
+                  {copiedServerFile ? (
+                    <CheckCheck className="h-4 w-4 mr-2" />
+                  ) : (
+                    <Copy className="h-4 w-4 mr-2" />
+                  )}
+                  Servers File
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Copy Servers File</TooltipContent>
+            </Tooltip>
+          </div>
+
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowAuthConfig(!showAuthConfig)}
+              className="flex items-center w-full"
+              data-testid="auth-button"
+              aria-expanded={showAuthConfig}
+            >
+              {showAuthConfig ? (
+                <ChevronDown className="w-4 h-4 mr-2" />
+              ) : (
+                <ChevronRight className="w-4 h-4 mr-2" />
+              )}
+              Authentication
+            </Button>
+            {showAuthConfig && (
+              <>
+                {/* Custom Headers Section */}
+                <div className="p-3 rounded border overflow-hidden">
+                  <CustomHeaders
+                    headers={customHeaders}
+                    onChange={setCustomHeaders}
+                  />
+                </div>
+                {transportType !== "stdio" && (
+                  // OAuth Configuration
+                  <div className="space-y-2 p-3  rounded border">
+                    <h4 className="text-sm font-semibold flex items-center">
+                      OAuth 2.0 Flow
+                    </h4>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Client ID</label>
+                      <Input
+                        placeholder="Client ID"
+                        onChange={(e) => setOauthClientId(e.target.value)}
+                        value={oauthClientId}
+                        data-testid="oauth-client-id-input"
+                        className="font-mono"
+                      />
+                      <label className="text-sm font-medium">
+                        Client Secret
+                      </label>
+                      <div className="flex gap-2">
+                        <Input
+                          type={showClientSecret ? "text" : "password"}
+                          placeholder="Client Secret (optional)"
+                          onChange={(e) => setOauthClientSecret(e.target.value)}
+                          value={oauthClientSecret}
+                          data-testid="oauth-client-secret-input"
+                          className="font-mono"
+                        />
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 p-0 shrink-0"
+                          onClick={() => setShowClientSecret(!showClientSecret)}
+                          aria-label={
+                            showClientSecret ? "Hide secret" : "Show secret"
+                          }
+                          aria-pressed={showClientSecret}
+                          title={
+                            showClientSecret ? "Hide secret" : "Show secret"
+                          }
+                        >
+                          {showClientSecret ? (
+                            <Eye className="h-4 w-4" aria-hidden="true" />
+                          ) : (
+                            <EyeOff className="h-4 w-4" aria-hidden="true" />
+                          )}
+                        </Button>
+                      </div>
+                      <label className="text-sm font-medium">
+                        Redirect URL
+                      </label>
+                      <Input
+                        readOnly
+                        placeholder="Redirect URL"
+                        value={window.location.origin + "/oauth/callback"}
+                        className="font-mono"
+                      />
+                      <label className="text-sm font-medium">Scope</label>
+                      <Input
+                        placeholder="Scope (space-separated)"
+                        onChange={(e) => setOauthScope(e.target.value)}
+                        value={oauthScope}
+                        data-testid="oauth-scope-input"
+                        className="font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
           {/* Configuration */}
           <div className="space-y-2">
             <Button
@@ -486,13 +786,18 @@ const Sidebar = ({
                   }
                 })()}`}
               />
-              <span className="text-sm text-gray-600">
+              <span className="text-sm text-gray-600 dark:text-gray-400">
                 {(() => {
                   switch (connectionStatus) {
                     case "connected":
                       return "Connected";
-                    case "error":
-                      return "Connection Error, is your MCP server running?";
+                    case "error": {
+                      const hasProxyToken = config.MCP_PROXY_AUTH_TOKEN?.value;
+                      if (!hasProxyToken) {
+                        return "Connection Error - Did you add the proxy session token in Configuration?";
+                      }
+                      return "Connection Error - Check if your MCP server is running and proxy token is correct";
+                    }
                     case "error-connecting-to-proxy":
                       return "Error Connecting to MCP Inspector Proxy - Check Console logs";
                     default:
@@ -521,31 +826,13 @@ const Sidebar = ({
                   </SelectTrigger>
                   <SelectContent>
                     {Object.values(LoggingLevelSchema.enum).map((level) => (
-                      <SelectItem value={level}>{level}</SelectItem>
+                      <SelectItem key={level} value={level}>
+                        {level}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
-
-            {stdErrNotifications.length > 0 && (
-              <>
-                <div className="mt-4 border-t border-gray-200 pt-4">
-                  <h3 className="text-sm font-medium">
-                    Error output from MCP server
-                  </h3>
-                  <div className="mt-2 max-h-80 overflow-y-auto">
-                    {stdErrNotifications.map((notification, index) => (
-                      <div
-                        key={index}
-                        className="text-sm text-red-500 font-mono py-2 border-b border-gray-200 last:border-b-0"
-                      >
-                        {notification.params.content}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </>
             )}
           </div>
         </div>
