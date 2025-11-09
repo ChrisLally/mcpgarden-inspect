@@ -39,24 +39,14 @@ const MODEL_STORAGE_KEY = "gemini-model-choice";
 // Available Gemini models
 const GEMINI_MODELS = [
   {
-    id: "gemini-1.5-flash",
-    name: "Gemini 1.5 Flash",
-    description: "Fastest model, good for most interactions",
+    id: "gemini-2.5-flash",
+    name: "Gemini 2.5 Flash",
+    description: "Latest generation, fast and efficient",
   },
   {
-    id: "gemini-1.5-pro",
-    name: "Gemini 1.5 Pro",
-    description: "Complex reasoning tasks requiring more intelligence",
-  },
-  {
-    id: "gemini-2.0-flash",
-    name: "Gemini 2.0 Flash",
-    description: "Next generation features, speed, thinking, multimodal",
-  },
-  {
-    id: "gemini-2.5-pro-preview-03-25",
-    name: "Gemini 2.5 Pro Preview",
-    description: "Enhanced thinking, reasoning, and multimodal",
+    id: "gemini-2.5-pro",
+    name: "Gemini 2.5 Pro",
+    description: "Latest generation, enhanced reasoning and multimodal",
   },
 ];
 
@@ -210,7 +200,9 @@ const ChatTab = ({
   const [apiKeyInputValue, setApiKeyInputValue] = useState("");
   // State for managing model selection
   const [selectedModel, setSelectedModel] =
-    useState<string>("gemini-2.0-flash");
+    useState<string>("gemini-2.5-flash");
+  const [customModelInput, setCustomModelInput] = useState<string>("");
+  const [useCustomModel, setUseCustomModel] = useState<boolean>(false);
 
   // State for selected tools (tool name -> boolean)
   const [selectedTools, setSelectedTools] = useState<Record<string, boolean>>(
@@ -234,7 +226,17 @@ const ChatTab = ({
 
     // Load model preference
     const savedModel = localStorage.getItem(MODEL_STORAGE_KEY);
-    if (savedModel && GEMINI_MODELS.some((model) => model.id === savedModel)) {
+    const savedUseCustom =
+      localStorage.getItem("gemini-use-custom-model") === "true";
+    const savedCustomModel = localStorage.getItem("gemini-custom-model") || "";
+
+    if (savedUseCustom && savedCustomModel) {
+      setUseCustomModel(true);
+      setCustomModelInput(savedCustomModel);
+    } else if (
+      savedModel &&
+      GEMINI_MODELS.some((model) => model.id === savedModel)
+    ) {
       setSelectedModel(savedModel);
     }
   }, []);
@@ -275,8 +277,23 @@ const ChatTab = ({
 
   // Handle model change
   const handleModelChange = (model: string) => {
+    if (model === "__custom__") {
+      setUseCustomModel(true);
+      return;
+    }
     setSelectedModel(model);
+    setUseCustomModel(false);
     localStorage.setItem(MODEL_STORAGE_KEY, model);
+    localStorage.setItem("gemini-use-custom-model", "false");
+  };
+
+  // Handle custom model input
+  const handleCustomModelChange = (value: string) => {
+    setCustomModelInput(value);
+    if (value.trim()) {
+      localStorage.setItem("gemini-custom-model", value.trim());
+      localStorage.setItem("gemini-use-custom-model", "true");
+    }
   };
 
   // Effect to load tools when mcpClient is connected
@@ -418,8 +435,13 @@ const ChatTab = ({
         throw new Error("Google AI client not initialized");
       }
 
+      const modelToUse =
+        useCustomModel && customModelInput.trim()
+          ? customModelInput.trim()
+          : selectedModel;
+
       const model = googleAI.getGenerativeModel({
-        model: selectedModel,
+        model: modelToUse,
         systemInstruction:
           activeTools.length > 0 // Use activeTools count
             ? "You can use tools to help answer the user's question. Use tools whenever they would be helpful."
@@ -908,13 +930,13 @@ const ChatTab = ({
             {/* Model Selection */}
             <div>
               <h4 className="text-sm font-medium mb-2">Model</h4>
-              <div className="bg-card rounded-md border p-2">
+              <div className="bg-card rounded-md border p-2 space-y-2">
                 <div className="flex items-center">
                   <div
                     className={`w-2 h-2 rounded-full mr-2 bg-green-500`}
                   ></div>
                   <Select
-                    value={selectedModel}
+                    value={useCustomModel ? "__custom__" : selectedModel}
                     onValueChange={handleModelChange}
                   >
                     <SelectTrigger className="h-7 text-xs flex-grow min-w-0">
@@ -935,9 +957,31 @@ const ChatTab = ({
                           </div>
                         </SelectItem>
                       ))}
+                      <SelectItem value="__custom__" className="text-xs">
+                        <div>
+                          <div>Custom Model</div>
+                          <div className="text-xs text-muted-foreground">
+                            Enter a custom model name
+                          </div>
+                        </div>
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
+                {useCustomModel && (
+                  <div className="mt-2">
+                    <Input
+                      type="text"
+                      placeholder="e.g., gemini-1.5-pro-latest"
+                      value={customModelInput}
+                      onChange={(e) => handleCustomModelChange(e.target.value)}
+                      className="h-7 text-xs"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Enter any valid Gemini model name
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 

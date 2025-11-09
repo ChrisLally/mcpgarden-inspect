@@ -37,6 +37,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import CustomHeaders from "./CustomHeaders";
 import { CustomHeaders as CustomHeadersType } from "@/lib/types/customHeaders";
 import { useToast } from "../lib/hooks/useToast";
@@ -268,6 +269,13 @@ const Sidebar = ({
 
           {transportType === "stdio" ? (
             <>
+              <Alert>
+                <AlertDescription>
+                  ⚠️ STDIO transport is intended for local development only. It
+                  requires direct access to your local machine to execute
+                  commands.
+                </AlertDescription>
+              </Alert>
               <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="command-input">
                   Command
@@ -279,6 +287,7 @@ const Sidebar = ({
                   onChange={(e) => setCommand(e.target.value)}
                   onBlur={(e) => setCommand(e.target.value.trim())}
                   className="font-mono"
+                  disabled
                 />
               </div>
               <div className="space-y-2">
@@ -294,6 +303,7 @@ const Sidebar = ({
                   value={args}
                   onChange={(e) => setArgs(e.target.value)}
                   className="font-mono"
+                  disabled
                 />
               </div>
             </>
@@ -333,15 +343,15 @@ const Sidebar = ({
                   onClick={() => {
                     const sampleUrl =
                       transportType === "streamable-http"
-                        ? "https://test.mcp.garden/mcp" // Updated URL for Streamable HTTP
-                        : "https://gitmcp.io/modelcontextprotocol/servers/tree/main/src/time"; // URL for SSE
+                        ? "https://zip1.io/mcp" // Streamable HTTP URL
+                        : "https://docs.mcp.cloudflare.com/sse"; // Cloudflare SSE URL
                     onSetSampleUrl(sampleUrl);
                   }}
                 >
                   Use Sample URL (
                   {transportType === "streamable-http"
-                    ? "test.mcp.garden"
-                    : "gitmcp.io time"}
+                    ? "zip1.io"
+                    : "docs.mcp.cloudflare.com"}
                   )
                 </Button>
               </div>

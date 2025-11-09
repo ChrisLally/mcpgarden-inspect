@@ -23,9 +23,10 @@ export const getMCPProxyAddress = (config: InspectorConfig): string => {
       return proxyFullAddress;
     }
 
-    // Check for proxy port from query params, fallback to default
+    // Check for proxy port from query params, otherwise use current window port or default
+    const queryParamPort = getSearchParam("MCP_PROXY_PORT");
     const proxyPort =
-      getSearchParam("MCP_PROXY_PORT") || DEFAULT_MCP_PROXY_LISTEN_PORT;
+      queryParamPort || window.location.port || DEFAULT_MCP_PROXY_LISTEN_PORT;
 
     // Otherwise, derive it from the current window location
     const derivedAddress = `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
@@ -34,7 +35,7 @@ export const getMCPProxyAddress = (config: InspectorConfig): string => {
   } catch (error) {
     console.error("Error in getMCPProxyAddress:", error);
     // Fallback to a safe default based on the current hostname
-    const fallbackAddress = `${window.location.protocol}//${window.location.hostname}`;
+    const fallbackAddress = `${window.location.protocol}//${window.location.hostname}:${window.location.port || DEFAULT_MCP_PROXY_LISTEN_PORT}`;
     console.log(`Using fallback proxy address: ${fallbackAddress}`);
     return fallbackAddress;
   }
@@ -80,20 +81,27 @@ export const getInitialTransportType = ():
     (localStorage.getItem("lastTransportType") as
       | "stdio"
       | "sse"
-      | "streamable-http") || "stdio"
+      | "streamable-http") || "streamable-http" // Default to streamable-http
   );
 };
 
 export const getInitialSseUrl = (): string => {
   const param = getSearchParam("serverUrl");
   if (param) return param;
-  return localStorage.getItem("lastSseUrl") || "http://localhost:3001/sse";
+  const savedUrl = localStorage.getItem("lastSseUrl");
+  // Only use saved URL if it's not empty
+  if (savedUrl && savedUrl.trim()) return savedUrl;
+  // Default based on transport type - always return a sample URL
+  const transportType = getInitialTransportType();
+  return transportType === "streamable-http"
+    ? "https://zip1.io/mcp"
+    : "https://docs.mcp.cloudflare.com/sse";
 };
 
 export const getInitialCommand = (): string => {
   const param = getSearchParam("serverCommand");
   if (param) return param;
-  return localStorage.getItem("lastCommand") || "mcp-server-everything";
+  return localStorage.getItem("lastCommand") || "";
 };
 
 export const getInitialArgs = (): string => {

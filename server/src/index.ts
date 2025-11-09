@@ -24,6 +24,7 @@ import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import express from "express";
 import path from "path"; // Import path module
 import { fileURLToPath } from "url"; // Import url module for ES module __dirname equivalent
+import { existsSync, readdirSync } from "fs"; // Import fs functions for checking directory existence
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
@@ -163,6 +164,28 @@ app.use((req, res, next) => {
 // Assumes the server runs from server/build/index.js and client build is in client/dist
 const clientBuildPath = path.join(__dirname, "..", "..", "client", "dist");
 console.log(`Serving static files from: ${clientBuildPath}`);
+
+// Check if the directory exists
+if (!existsSync(clientBuildPath)) {
+  console.error(
+    `ERROR: Client build directory not found at: ${clientBuildPath}`,
+  );
+  console.error(`Current __dirname: ${__dirname}`);
+} else {
+  console.log(`✓ Client build directory found`);
+  // List some files to verify
+  try {
+    const files = readdirSync(clientBuildPath);
+    console.log(
+      `✓ Found ${files.length} items in client/dist:`,
+      files.slice(0, 5).join(", "),
+    );
+  } catch (e) {
+    console.error(`Error reading directory:`, e);
+  }
+}
+
+// Serve static files (assets, etc.) - this must come BEFORE the catch-all route
 app.use(express.static(clientBuildPath));
 // --- End static file serving ---
 
@@ -173,7 +196,11 @@ const sessionHeaderHolders: Map<string, { headers: HeadersInit }> = new Map(); /
 // Use provided token from environment or generate a new one
 const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
-const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+// Default to disabling auth for Cloud Run deployments (can be overridden)
+const authDisabled =
+  process.env.DANGEROUSLY_OMIT_AUTH !== undefined
+    ? !!process.env.DANGEROUSLY_OMIT_AUTH
+    : true; // Default to true (auth disabled)
 
 // Origin validation middleware to prevent DNS rebinding attacks
 const originValidationMiddleware = (
@@ -774,7 +801,28 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
 app.get("*", (req, res) => {
   const indexPath = path.join(clientBuildPath, "index.html");
   console.log(`Serving index.html for ${req.path} from ${indexPath}`);
-  res.sendFile(indexPath);
+
+  if (!existsSync(indexPath)) {
+    console.error(`ERROR: index.html not found at: ${indexPath}`);
+    res.status(500).send(`
+      <html>
+        <body>
+          <h1>Error: Client files not found</h1>
+          <p>Expected path: ${indexPath}</p>
+          <p>Current __dirname: ${__dirname}</p>
+          <p>clientBuildPath: ${clientBuildPath}</p>
+        </body>
+      </html>
+    `);
+    return;
+  }
+
+  res.sendFile(indexPath, (err) => {
+    if (err) {
+      console.error(`Error sending index.html:`, err);
+      res.status(500).send(`Error loading application: ${err.message}`);
+    }
+  });
 });
 // --- End catch-all route ---
 
@@ -794,7 +842,7 @@ server.on("listening", () => {
     );
   } else {
     console.log(
-      `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
+      `✓ Authentication is disabled (default for Cloud Run deployments)`,
     );
   }
 });

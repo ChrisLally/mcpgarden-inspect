@@ -114,10 +114,14 @@ const App = () => {
   >(getInitialTransportType);
   const [connectionType, setConnectionType] = useState<"direct" | "proxy">(
     () => {
-      return (
-        (localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
-        "proxy"
-      );
+      // Default to "direct" for SSE transport, "proxy" for others
+      const savedType = localStorage.getItem("lastConnectionType") as
+        | "direct"
+        | "proxy"
+        | null;
+      if (savedType) return savedType;
+      const initialTransport = getInitialTransportType();
+      return initialTransport === "sse" ? "direct" : "proxy";
     },
   );
   const [logLevel, setLogLevel] = useState<LoggingLevel>("debug");
@@ -357,7 +361,21 @@ const App = () => {
 
   useEffect(() => {
     localStorage.setItem("lastTransportType", transportType);
-  }, [transportType]);
+    // Update URL to match sample URL for the transport type if URL is empty or matches a sample URL
+    const sampleUrls: Record<string, string> = {
+      "streamable-http": "https://zip1.io/mcp",
+      sse: "https://docs.mcp.cloudflare.com/sse",
+    };
+    const currentSampleUrl = sampleUrls[transportType];
+    if (
+      currentSampleUrl &&
+      (!sseUrl ||
+        sseUrl === "https://zip1.io/mcp" ||
+        sseUrl === "https://docs.mcp.cloudflare.com/sse")
+    ) {
+      setSseUrl(currentSampleUrl);
+    }
+  }, [transportType, sseUrl]);
 
   useEffect(() => {
     localStorage.setItem("lastConnectionType", connectionType);

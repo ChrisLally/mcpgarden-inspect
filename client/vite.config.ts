@@ -4,7 +4,12 @@ import { defineConfig } from "vite";
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react({
+      // Ensure React is properly handled
+      jsxRuntime: "automatic",
+    }),
+  ],
   server: {
     host: true, // Allows access from network
     proxy: {
@@ -35,13 +40,22 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+    dedupe: ["react", "react-dom"], // Ensure only one instance of React
   },
   build: {
     minify: false,
     rollupOptions: {
       output: {
-        manualChunks: undefined,
+        manualChunks: undefined, // Don't split chunks - bundle everything together to avoid React issues
       },
     },
+    commonjsOptions: {
+      include: [/node_modules/],
+      transformMixedEsModules: true,
+    },
+  },
+  optimizeDeps: {
+    include: ["react", "react-dom"],
+    force: true, // Force re-optimization
   },
 });
