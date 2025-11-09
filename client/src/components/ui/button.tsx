@@ -10,15 +10,15 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow hover:bg-primary/90 dark:bg-gray-800 dark:text-white dark:hover:bg-gray-700",
+          "bg-primary text-primary-foreground shadow hover:bg-primary/90", // Use CSS vars defined in mcpgarden-index.css for dark mode implicitly
         destructive:
-          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+          "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90", // Use CSS vars
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
+          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground", // Use CSS vars
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary underline-offset-4 hover:underline",
+          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80", // Use CSS vars
+        ghost: "hover:bg-accent hover:text-accent-foreground", // Use CSS vars
+        link: "text-primary underline-offset-4 hover:underline", // Use CSS vars
       },
       size: {
         default: "h-9 px-4 py-2",

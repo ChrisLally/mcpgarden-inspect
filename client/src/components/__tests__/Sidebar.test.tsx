@@ -42,6 +42,7 @@ describe("Sidebar", () => {
     setArgs: jest.fn(),
     sseUrl: "",
     setSseUrl: jest.fn(),
+    onSetSampleUrl: jest.fn(),
     oauthClientId: "",
     setOauthClientId: jest.fn(),
     oauthClientSecret: "",

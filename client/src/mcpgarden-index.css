@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --card: rgb(248, 245, 240);
+  --card-foreground: rgb(62, 39, 35);
+  --popover: rgb(248, 245, 240);
+  --popover-foreground: rgb(62, 39, 35);
+  --primary: rgb(46, 125, 50);
+  --primary-foreground: rgb(255, 255, 255);
+  --secondary: rgb(232, 245, 233);
+  --secondary-foreground: rgb(27, 94, 32);
+  --muted: rgb(240, 233, 224);
+  --muted-foreground: rgb(109, 76, 65);
+  --accent: rgb(200, 230, 201);
+  --accent-foreground: rgb(27, 94, 32);
+  --destructive: rgb(198, 40, 40);
+  --destructive-foreground: rgb(255, 255, 255);
+  --border: rgb(224, 214, 201);
+  --input: rgb(224, 214, 201);
+  --ring: rgb(46, 125, 50);
+  --chart-1: rgb(76, 175, 80);
+  --chart-2: rgb(56, 142, 60);
+  --chart-3: rgb(46, 125, 50);
+  --chart-4: rgb(27, 94, 32);
+  --chart-5: rgb(10, 31, 12);
+  --sidebar: rgb(240, 233, 224);
+  --sidebar-foreground: rgb(62, 39, 35);
+  --sidebar-primary: rgb(46, 125, 50);
+  --sidebar-primary-foreground: rgb(255, 255, 255);
+  --sidebar-accent: rgb(200, 230, 201);
+  --sidebar-accent-foreground: rgb(27, 94, 32);
+  --sidebar-border: rgb(224, 214, 201);
+  --sidebar-ring: rgb(46, 125, 50);
+
+  --font-sans: Montserrat, sans-serif;
+  --font-serif: Merriweather, serif;
+  --font-mono: Source Code Pro, monospace;
+
+  --radius: 0.5rem;
+
+  --background: oklch(1 0 0);
+
+  --foreground: oklch(0.145 0 0);
+}
+
+.dark {
+  --background: rgb(28, 42, 31);
+  --foreground: rgb(240, 235, 229);
+  --card: rgb(45, 58, 46);
+  --card-foreground: rgb(240, 235, 229);
+  --popover: rgb(45, 58, 46);
+  --popover-foreground: rgb(240, 235, 229);
+  --primary: rgb(76, 175, 80);
+  --primary-foreground: rgb(10, 31, 12);
+  --secondary: rgb(62, 74, 61);
+  --secondary-foreground: rgb(215, 224, 214);
+  --muted: rgb(45, 58, 46);
+  --muted-foreground: rgb(215, 207, 196);
+  --accent: rgb(56, 142, 60);
+  --accent-foreground: rgb(240, 235, 229);
+  --destructive: rgb(198, 40, 40);
+  --destructive-foreground: rgb(240, 235, 229);
+  --border: rgb(62, 74, 61);
+  --input: rgb(62, 74, 61);
+  --ring: rgb(76, 175, 80);
+  --chart-1: rgb(129, 199, 132);
+  --chart-2: rgb(102, 187, 106);
+  --chart-3: rgb(76, 175, 80);
+  --chart-4: rgb(67, 160, 71);
+  --chart-5: rgb(56, 142, 60);
+  --sidebar: rgb(28, 42, 31);
+  --sidebar-foreground: rgb(240, 235, 229);
+  --sidebar-primary: rgb(76, 175, 80);
+  --sidebar-primary-foreground: rgb(10, 31, 12);
+  --sidebar-accent: rgb(56, 142, 60);
+  --sidebar-accent-foreground: rgb(240, 235, 229);
+  --sidebar-border: rgb(62, 74, 61);
+  --sidebar-ring: rgb(76, 175, 80);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* 
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+} */
+
+/* 
+---break--- */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Global Dark Mode Overrides for specific grey text utilities */
+@layer utilities {
+
+  .dark .text-gray-500,
+  .dark .text-gray-600 {
+    color: var(--muted-foreground);
+  }
+
+  .dark .text-gray-700 {
+    color: var(--foreground);
+  }
+
+  /* Add more overrides if other grey shades are causing issues */
+}

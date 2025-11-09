@@ -14,17 +14,30 @@ const getSearchParam = (key: string): string | null => {
 };
 
 export const getMCPProxyAddress = (config: InspectorConfig): string => {
-  let proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
-  if (proxyFullAddress) {
-    proxyFullAddress = proxyFullAddress.replace(/\/+$/, "");
-    return proxyFullAddress;
+  try {
+    // If a full proxy address is explicitly configured, use it
+    let proxyFullAddress = config.MCP_PROXY_FULL_ADDRESS.value as string;
+    if (proxyFullAddress && proxyFullAddress.trim()) {
+      proxyFullAddress = proxyFullAddress.replace(/\/+$/, "");
+      console.log(`Using configured proxy address: ${proxyFullAddress}`);
+      return proxyFullAddress;
+    }
+
+    // Check for proxy port from query params, fallback to default
+    const proxyPort =
+      getSearchParam("MCP_PROXY_PORT") || DEFAULT_MCP_PROXY_LISTEN_PORT;
+
+    // Otherwise, derive it from the current window location
+    const derivedAddress = `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
+    console.log(`Using derived proxy address: ${derivedAddress}`);
+    return derivedAddress;
+  } catch (error) {
+    console.error("Error in getMCPProxyAddress:", error);
+    // Fallback to a safe default based on the current hostname
+    const fallbackAddress = `${window.location.protocol}//${window.location.hostname}`;
+    console.log(`Using fallback proxy address: ${fallbackAddress}`);
+    return fallbackAddress;
   }
-
-  // Check for proxy port from query params, fallback to default
-  const proxyPort =
-    getSearchParam("MCP_PROXY_PORT") || DEFAULT_MCP_PROXY_LISTEN_PORT;
-
-  return `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
 };
 
 export const getMCPServerRequestTimeout = (config: InspectorConfig): number => {

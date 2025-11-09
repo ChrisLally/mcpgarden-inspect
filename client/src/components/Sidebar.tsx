@@ -51,6 +51,7 @@ interface SidebarProps {
   setArgs: (args: string) => void;
   sseUrl: string;
   setSseUrl: (url: string) => void;
+  onSetSampleUrl: (url: string) => void; // Add new prop for the handler
   env: Record<string, string>;
   setEnv: (env: Record<string, string>) => void;
   // Custom headers support
@@ -83,6 +84,7 @@ const Sidebar = ({
   setArgs,
   sseUrl,
   setSseUrl,
+  onSetSampleUrl, // Destructure the new prop
   env,
   setEnv,
   customHeaders,
@@ -323,6 +325,25 @@ const Sidebar = ({
                     className="font-mono"
                   />
                 )}
+                {/* Add the new button here */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full mt-1 text-xs"
+                  onClick={() => {
+                    const sampleUrl =
+                      transportType === "streamable-http"
+                        ? "https://test.mcp.garden/mcp" // Updated URL for Streamable HTTP
+                        : "https://gitmcp.io/modelcontextprotocol/servers/tree/main/src/time"; // URL for SSE
+                    onSetSampleUrl(sampleUrl);
+                  }}
+                >
+                  Use Sample URL (
+                  {transportType === "streamable-http"
+                    ? "test.mcp.garden"
+                    : "gitmcp.io time"}
+                  )
+                </Button>
               </div>
 
               {/* Connection Type switch - only visible for non-STDIO transport types */}

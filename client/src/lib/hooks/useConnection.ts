@@ -4,6 +4,7 @@ import {
   SseError,
   SSEClientTransportOptions,
 } from "@modelcontextprotocol/sdk/client/sse.js";
+
 import {
   StreamableHTTPClientTransport,
   StreamableHTTPClientTransportOptions,
@@ -64,7 +65,7 @@ interface UseConnectionOptions {
   transportType: "stdio" | "sse" | "streamable-http";
   command: string;
   args: string;
-  sseUrl: string;
+  sseUrl: string; // Used as base URL for streamableHttp or target for SSE proxy
   env: Record<string, string>;
   // Custom headers support
   customHeaders?: CustomHeaders;
@@ -318,6 +319,7 @@ export function useConnection({
       }
       const proxyHealthResponse = await fetch(proxyHealthUrl, { headers });
       const proxyHealth = await proxyHealthResponse.json();
+      console.info("proxyHealth", proxyHealth);
       if (proxyHealth?.status !== "ok") {
         throw new Error("MCP Proxy Server is not healthy");
       }
@@ -728,10 +730,8 @@ export function useConnection({
         }
         if (is401Error(error)) {
           // Don't set error state if we're about to redirect for auth
-
           return;
         }
-        throw error;
       }
       setServerCapabilities(capabilities ?? null);
       setCompletionsSupported(capabilities?.completions !== undefined);
@@ -787,8 +787,10 @@ export function useConnection({
           variant: "destructive",
         });
       }
-      console.error(e);
+      console.error("Error during post-connection setup:", e);
       setConnectionStatus("error");
+      await client.close(); // Attempt to clean up client
+      setMcpClient(null);
     }
   };
 

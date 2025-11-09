@@ -22,11 +22,18 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import express from "express";
+import path from "path"; // Import path module
+import { fileURLToPath } from "url"; // Import url module for ES module __dirname equivalent
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy from "./mcpProxy.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 
+// ES module equivalent of __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
+const SSE_HEADERS_PASSTHROUGH = ["authorization"];
 
 const defaultEnvironment = {
   ...getDefaultEnvironment(),
@@ -150,6 +157,14 @@ app.use((req, res, next) => {
   res.header("Access-Control-Expose-Headers", "mcp-session-id");
   next();
 });
+
+// --- Static file serving ---
+// Determine the path to the client build directory
+// Assumes the server runs from server/build/index.js and client build is in client/dist
+const clientBuildPath = path.join(__dirname, "..", "..", "client", "dist");
+console.log(`Serving static files from: ${clientBuildPath}`);
+app.use(express.static(clientBuildPath));
+// --- End static file serving ---
 
 const webAppTransports: Map<string, Transport> = new Map<string, Transport>(); // Web app transports by web app sessionId
 const serverTransports: Map<string, Transport> = new Map<string, Transport>(); // Server Transports by web app sessionId
@@ -754,11 +769,20 @@ app.get("/config", originValidationMiddleware, authMiddleware, (req, res) => {
   }
 });
 
+// --- Catch-all route for SPA ---
+// This should come after all API routes
+app.get("*", (req, res) => {
+  const indexPath = path.join(clientBuildPath, "index.html");
+  console.log(`Serving index.html for ${req.path} from ${indexPath}`);
+  res.sendFile(indexPath);
+});
+// --- End catch-all route ---
+
 const PORT = parseInt(
-  process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,
+  process.env.PORT || process.env.SERVER_PORT || DEFAULT_MCP_PROXY_LISTEN_PORT,
   10,
 );
-const HOST = process.env.HOST || "localhost";
+const HOST = process.env.HOST || "0.0.0.0"; // Default to 0.0.0.0 for Cloud Run compatibility
 
 const server = app.listen(PORT, HOST);
 server.on("listening", () => {
